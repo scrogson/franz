@@ -1,0 +1,4 @@
+%{
+  "rustler": {:git, "https://github.com/rusterlium/rustler.git", "04017fdb00999bfb3760123a1fe2825f0c9094a0", [sparse: "rustler_mix", branch: "compiler_options"]},
+  "toml": {:hex, :toml, "0.5.2", "e471388a8726d1ce51a6b32f864b8228a1eb8edc907a0edf2bb50eab9321b526", [:mix], [], "hexpm"},
+}

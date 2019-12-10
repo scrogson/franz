@@ -1,0 +1,17 @@
+[package]
+name = "franz"
+version = "0.1.0"
+authors = ["Sonny Scroggin <sonny@scrogg.in>"]
+edition = "2018"
+
+[lib]
+name = "franz"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+futures = "0.3"
+lazy_static = "1.4"
+rdkafka = { git = "https://github.com/fede1024/rust-rdkafka" }
+rustler = { git = "https://github.com/rusterlium/rustler", branch = "compiler_options" }
+tokio = { version = "0.2", features = ["full"] }

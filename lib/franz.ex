@@ -1,0 +1,2 @@
+defmodule Franz do
+end
