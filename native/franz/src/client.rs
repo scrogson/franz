@@ -2,62 +2,53 @@ use crate::TOKIO;
 use crate::atoms::{ok, error};
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::message::{Message as _, OwnedMessage};
+use rdkafka::message::{Message as _, BorrowedMessage};
 use rustler::{Atom, Decoder, Encoder, Env, Error, NifStruct, OwnedBinary, OwnedEnv, Pid, ResourceArc, Term};
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use std::io::Write;
+use log::trace;
 
-//pub struct Bin(Vec<u8>);
+pub struct Bin(Vec<u8>);
 
-//impl<'a> Encoder for Bin {
-    //fn encode<'b>(&self, env: Env<'b>) -> Term<'b> {
-        //let mut bin = OwnedBinary::new(self.0.len()).expect("Failed to alloc");
-        //bin.as_mut_slice().write_all(&self.0).unwrap();
-        //bin.release(env).encode(env)
-    //}
-//}
+impl<'a> Encoder for Bin {
+    fn encode<'b>(&self, env: Env<'b>) -> Term<'b> {
+        let mut bin = OwnedBinary::new(self.0.len()).expect("Failed to alloc");
+        bin.as_mut_slice().write_all(&self.0).unwrap();
+        bin.release(env).encode(env)
+    }
+}
 
-//impl<'a> Decoder<'a> for Bin {
-    //fn decode(term: Term<'a>) -> Result<Bin, Error> {
-        //let vec: Vec<u8> = term.decode()?;
-        //Ok(Bin(vec))
-    //}
-//}
+impl<'a> Decoder<'a> for Bin {
+    fn decode(term: Term<'a>) -> Result<Bin, Error> {
+        let vec: Vec<u8> = term.decode()?;
+        Ok(Bin(vec))
+    }
+}
 
 #[derive(NifStruct)]
 #[module = "Franz.Message"]
 pub struct Message {
-    payload: Option<Vec<u8>>,
-    key: Option<Vec<u8>>,
+    payload: Option<Bin>,
+    key: Option<Bin>,
     topic: String,
-    //timestamp: Option<i64>,
-    //partition: i32,
-    //offset: i64,
-    //headers: Vec<(String, String)>,
+    timestamp: Option<i64>,
+    partition: i32,
+    offset: i64,
+    headers: Vec<(String, String)>,
 }
 
-impl From<OwnedMessage> for Message {
-    fn from(o: OwnedMessage) -> Message {
-        let payload = o.payload().map(|p| p.to_vec());
-        eprintln!("Payload: {:?}", payload);
-        let key = o.key().map(|k| k.to_vec());
-        eprintln!("Key: {:?}", key);
-        let topic = o.topic().to_owned();
-        eprintln!("Topic: {:?}", topic);
-
+impl<'a> From<&BorrowedMessage<'a>> for Message {
+    fn from(msg: &BorrowedMessage) -> Message {
         Message {
-            payload,
-            key,
-            topic,
-            //key: o.key().map(|k| k.to_vec()),
-            //topic: o.topic().to_owned(),
-            //timestamp: o.timestamp().to_millis(),
-            //partition: o.partition(),
-            //offset: o.offset(),
-            ////headers: self.headers().map(),
-            //headers: vec![],
+            payload: msg.payload().map(|p| Bin(p.to_vec())),
+            key: msg.key().map(|k| Bin(k.to_vec())),
+            topic: msg.topic().to_owned(),
+            timestamp: msg.timestamp().to_millis(),
+            partition: msg.partition(),
+            offset: msg.offset(),
+            headers: vec![], // FIXME: copy out the headers for real
         }
     }
 }
@@ -82,7 +73,7 @@ impl ClientRef {
 
 enum ClientMsg {
     Poll(Pid, u64),
-    Stop,
+    //Stop,
 }
 
 pub fn load(env: Env) -> bool {
@@ -109,7 +100,7 @@ fn poll(env: Env, resource: ResourceArc<ClientRef>, timeout: u64) -> Term {
     TOKIO.spawn(async move {
         match sender.send(ClientMsg::Poll(pid, timeout)).await {
             Ok(_) => (),
-            Err(_err) => println!("send error"),
+            Err(_err) => trace!("send error"),
         }
     });
 
@@ -149,7 +140,7 @@ fn spawn_client(owner: Pid, config: Config, mut rx: Receiver<ClientMsg>) {
                     match &consumer.poll(Duration::from_millis(timeout)) {
                         Some(Ok(msg)) => {
                             env.send_and_clear(&pid, move |env| {
-                                Message::from(msg.detach()).encode(env)
+                                Message::from(msg).encode(env)
                             });
                         }
                         Some(Err(err)) => {
@@ -164,7 +155,7 @@ fn spawn_client(owner: Pid, config: Config, mut rx: Receiver<ClientMsg>) {
                         }
                     }
                 }
-                Some(Stop) => break,
+                //Some(Stop) => break,
                 None => continue,
             }
         }

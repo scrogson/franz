@@ -14,8 +14,11 @@ defmodule FranzTest do
 
     {:ok, client} = Client.start(config)
 
-    for i <- 0..1000 do
-      IO.inspect Client.poll(client, 100)
+    for _ <- 0..100 do
+      case Client.poll(client, 100) do
+        {:ok, nil} -> :ok
+        other -> IO.inspect other
+      end
     end
   end
 end

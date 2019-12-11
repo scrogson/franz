@@ -10,8 +10,10 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
+env_logger = "0.7"
 futures = "0.3"
 lazy_static = "1.4"
+log = "0.4"
 rdkafka = { git = "https://github.com/fede1024/rust-rdkafka" }
-rustler = { git = "https://github.com/rusterlium/rustler", branch = "compiler_options" }
+rustler = { git = "https://github.com/rusterlium/rustler", branch = "fix_send_and_clear" }
 tokio = { version = "0.2", features = ["full"] }

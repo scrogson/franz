@@ -11,6 +11,7 @@ lazy_static! {
 }
 
 fn load(env: Env, _: Term) -> bool {
+    env_logger::init();
     client::load(env);
     true
 }
