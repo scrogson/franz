@@ -21,7 +21,7 @@ rustler::init!(
         admin::start,
         admin::stop,
         admin::create_topics,
-        //admin::delete_topics,
+        admin::delete_topics,
         //admin::create_partitions,
         //admin::describe_configs,
         //admin::alter_configs,

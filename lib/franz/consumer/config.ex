@@ -27,14 +27,8 @@ defmodule Franz.Consumer.Config do
         }
 
   def new(opts \\ []) do
-    opts = Keyword.put_new(opts, :group_id, generate_group_id())
+    opts = Keyword.put_new(opts, :group_id, Franz.Utils.random_bytes())
 
     struct(Config, opts)
-  end
-
-  defp generate_group_id do
-    8
-    |> :crypto.strong_rand_bytes()
-    |> Base.encode64()
   end
 end

@@ -2,37 +2,38 @@ defmodule FranzTest do
   use ExUnit.Case
   doctest Franz
 
-  alias Franz.Consumer
-  alias Consumer.Config
-
-  test "polling for new messages" do
-    config =
-      Config.new(
-        auto_offset_reset: :beginning,
-        bootstrap_servers: "localhost:9094",
-        enable_auto_commit: false,
-        topics: ["test"]
-      )
-
-    {:ok, client} = Consumer.start(config)
-
-    for _ <- 0..100 do
-      case Consumer.poll(client, 100) do
-        {:ok, nil} -> :ok
-        other -> IO.inspect(other)
-      end
-    end
+  setup do
+    {:ok, brokers: "localhost:9094"}
   end
 
-  test "creating a topic" do
-    result =
-      Franz.create_topic("localhost:9094", %Franz.NewTopic{
-        name: "test2",
-        num_partitions: 8,
-        replication: 1,
-        config: []
-      })
+  test "creating/deleting topic", %{brokers: brokers} do
+    topic = Franz.Utils.random_bytes()
 
-    IO.inspect(result)
+    assert {:ok, ^topic} = Franz.create_topic(brokers, %Franz.NewTopic{name: topic})
+
+    # Wait for the Broker to commit the new topic
+    Process.sleep(100)
+
+    assert {:ok, ^topic} = Franz.delete_topic(brokers, topic)
+  end
+
+  test "creating/deleting multiple topics", %{brokers: brokers} do
+    topic_a = Franz.Utils.random_bytes()
+    topic_b = Franz.Utils.random_bytes()
+
+    assert [{:ok, ^topic_a}, {:ok, ^topic_b}] =
+             Franz.create_topics(brokers, [
+               %Franz.NewTopic{name: topic_a},
+               %Franz.NewTopic{name: topic_b}
+             ])
+
+    # Wait for the Broker to commit the new topic
+    Process.sleep(100)
+
+    assert [{:ok, ^topic_a}, {:ok, ^topic_b}] =
+             Franz.delete_topics(brokers, [
+               topic_a,
+               topic_b
+             ])
   end
 end

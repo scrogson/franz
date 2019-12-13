@@ -5,9 +5,8 @@ use log::trace;
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::admin::{AdminClient, };
-use rdkafka::message::{BorrowedMessage, Message as _};
 use rustler::{
-    Atom, Decoder, Encoder, Env, Error, NifStruct, OwnedBinary, OwnedEnv, Pid, ResourceArc, Term,
+    Atom, Encoder, Env, NifStruct, OwnedEnv, Pid, ResourceArc
 };
 use std::sync::Mutex;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -33,6 +32,7 @@ impl AdminRef {
 
 enum AdminMsg {
     CreateTopics(Pid, Vec<NewTopic>),
+    DeleteTopics(Pid, Vec<String>),
     Stop,
 }
 
@@ -43,11 +43,10 @@ pub fn load(env: Env) -> bool {
 
 
 #[rustler::nif(name = "admin_start", schedule = "DirtyIo")]
-fn start(env: Env, config: AdminConfig) -> (Atom, ResourceArc<AdminRef>) {
-    let pid = env.pid();
+fn start(config: AdminConfig) -> (Atom, ResourceArc<AdminRef>) {
     let (tx, rx) = channel::<AdminMsg>(1000);
 
-    spawn_client(pid, config, rx);
+    spawn_client(config, rx);
 
     (ok(), AdminRef::new(tx))
 }
@@ -84,7 +83,24 @@ pub fn create_topics(env: Env, resource: ResourceArc<AdminRef>, topics: Vec<NewT
     (ok(), resource.clone())
 }
 
-fn spawn_client(owner: Pid, config: AdminConfig, mut rx: Receiver<AdminMsg>) {
+
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn delete_topics(env: Env, resource: ResourceArc<AdminRef>, topics: Vec<String>) -> (Atom, ResourceArc<AdminRef>) {
+    let pid = env.pid();
+    let lock = resource.0.lock().expect("Failed to obtain a lock");
+    let mut sender = lock.clone();
+
+    task::spawn(async move {
+        match sender.send(AdminMsg::DeleteTopics(pid, topics)).await {
+            Ok(_) => (),
+            Err(_err) => trace!("send error"),
+        }
+    });
+
+    (ok(), resource.clone())
+}
+
+fn spawn_client(config: AdminConfig, mut rx: Receiver<AdminMsg>) {
     task::spawn(async move {
         use AdminMsg::*;
 
@@ -100,7 +116,6 @@ fn spawn_client(owner: Pid, config: AdminConfig, mut rx: Receiver<AdminMsg>) {
         loop {
             match rx.recv().await {
                 Some(CreateTopics(pid, new_topics)) => {
-                    let new_topics = new_topics;
                     let topics: Vec<rdkafka::admin::NewTopic> = new_topics.iter().map(|new_topic| {
                         let mut topic = rdkafka::admin::NewTopic::new(
                             &new_topic.name,
@@ -117,7 +132,25 @@ fn spawn_client(owner: Pid, config: AdminConfig, mut rx: Receiver<AdminMsg>) {
 
                     match &admin.create_topics(&topics, &admin_options).await {
                         Ok(results) => {
-                            trace!("{:?}", results);
+                            let mut topic_results: Vec<Result<String, (String, String)>> = Vec::new();
+                            for result in results {
+                                match result {
+                                    Ok(topic) => topic_results.push(Ok(topic.to_string())),
+                                    Err((topic, error)) => topic_results.push(Err((topic.to_string(), error.to_string()))),
+                                }
+                            }
+
+                            env.send_and_clear(&pid, move |env| topic_results.encode(env))
+                        }
+                        Err(err) => {
+                            env.send_and_clear(&pid, move |env| err.to_string().encode(env))
+                        }
+                    }
+                }
+                Some(DeleteTopics(pid, topics)) => {
+                    let topics: Vec<_> = topics.iter().map(|s| s.as_str()).collect();
+                    match &admin.delete_topics(&topics, &admin_options).await {
+                        Ok(results) => {
                             let mut topic_results: Vec<Result<String, (String, String)>> = Vec::new();
                             for result in results {
                                 match result {
