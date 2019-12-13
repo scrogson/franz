@@ -1,29 +1,38 @@
-use lazy_static::lazy_static;
 use rustler::{Env, Term};
-use tokio::runtime::{Builder, Runtime};
 
+mod admin;
 mod atoms;
-mod client;
-//mod consumer;
-
-lazy_static! {
-    static ref TOKIO: Runtime = Builder::new().threaded_scheduler().build().unwrap();
-}
+mod config;
+mod consumer;
+mod message;
+//mod producer;
+mod task;
 
 fn load(env: Env, _: Term) -> bool {
     env_logger::init();
-    client::load(env);
+    admin::load(env);
+    consumer::load(env);
     true
 }
 
 rustler::init!(
     "Elixir.Franz.Native",
     [
-        client::start,
-        client::poll,
+        admin::start,
+        admin::stop,
+        admin::create_topics,
+        //admin::delete_topics,
+        //admin::create_partitions,
+        //admin::describe_configs,
+        //admin::alter_configs,
+        consumer::start,
+        consumer::stop,
+        consumer::poll,
         //consumer::pause,
         //consumer::resume,
-        //consumer::stop,
+        //producer::start,
+        //producer::stop,
+        //producer::poll,
     ],
     load = load
 );
