@@ -5,13 +5,13 @@ use std::io::Write as _;
 #[derive(NifStruct)]
 #[module = "Franz.Message"]
 pub struct Message {
-    payload: Option<Bin>,
-    key: Option<Bin>,
-    topic: String,
-    timestamp: Option<i64>,
-    partition: i32,
-    offset: i64,
-    headers: Vec<(String, String)>,
+    pub payload: Option<Bin>,
+    pub key: Option<Bin>,
+    pub topic: String,
+    pub timestamp: Option<i64>,
+    pub partition: i32,
+    pub offset: i64,
+    pub headers: Vec<(String, String)>,
 }
 
 impl<'a> From<&BorrowedMessage<'a>> for Message {
@@ -28,7 +28,7 @@ impl<'a> From<&BorrowedMessage<'a>> for Message {
     }
 }
 
-struct Bin(Vec<u8>);
+pub struct Bin(pub Vec<u8>);
 
 impl<'a> Encoder for Bin {
     fn encode<'b>(&self, env: Env<'b>) -> Term<'b> {

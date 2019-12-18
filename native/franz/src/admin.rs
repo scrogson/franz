@@ -4,7 +4,7 @@ use crate::task;
 use log::trace;
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::admin::{AdminClient, };
+use rdkafka::admin::AdminClient;
 use rustler::{
     Atom, Encoder, Env, NifStruct, OwnedEnv, Pid, ResourceArc
 };
@@ -42,7 +42,7 @@ pub fn load(env: Env) -> bool {
 }
 
 
-#[rustler::nif(name = "admin_start", schedule = "DirtyIo")]
+#[rustler::nif(name = "admin_start")]
 fn start(config: AdminConfig) -> (Atom, ResourceArc<AdminRef>) {
     let (tx, rx) = channel::<AdminMsg>(1000);
 
@@ -51,7 +51,7 @@ fn start(config: AdminConfig) -> (Atom, ResourceArc<AdminRef>) {
     (ok(), AdminRef::new(tx))
 }
 
-#[rustler::nif(name = "admin_stop", schedule = "DirtyIo")]
+#[rustler::nif(name = "admin_stop")]
 fn stop(resource: ResourceArc<AdminRef>) -> Atom {
     let lock = resource.0.lock().expect("Failed to obtain a lock");
     let mut sender = lock.clone();
@@ -67,8 +67,12 @@ fn stop(resource: ResourceArc<AdminRef>) -> Atom {
 }
 
 
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn create_topics(env: Env, resource: ResourceArc<AdminRef>, topics: Vec<NewTopic>) -> (Atom, ResourceArc<AdminRef>) {
+#[rustler::nif]
+pub fn create_topics(
+    env: Env,
+    resource: ResourceArc<AdminRef>,
+    topics: Vec<NewTopic>
+) -> (Atom, ResourceArc<AdminRef>) {
     let pid = env.pid();
     let lock = resource.0.lock().expect("Failed to obtain a lock");
     let mut sender = lock.clone();
@@ -83,9 +87,12 @@ pub fn create_topics(env: Env, resource: ResourceArc<AdminRef>, topics: Vec<NewT
     (ok(), resource.clone())
 }
 
-
-#[rustler::nif(schedule = "DirtyIo")]
-pub fn delete_topics(env: Env, resource: ResourceArc<AdminRef>, topics: Vec<String>) -> (Atom, ResourceArc<AdminRef>) {
+#[rustler::nif]
+pub fn delete_topics(
+    env: Env,
+    resource: ResourceArc<AdminRef>,
+    topics: Vec<String>
+) -> (Atom, ResourceArc<AdminRef>) {
     let pid = env.pid();
     let lock = resource.0.lock().expect("Failed to obtain a lock");
     let mut sender = lock.clone();
@@ -140,10 +147,10 @@ fn spawn_client(config: AdminConfig, mut rx: Receiver<AdminMsg>) {
                                 }
                             }
 
-                            env.send_and_clear(&pid, move |env| topic_results.encode(env))
+                            env.send_and_clear(&pid, move |env| (ok(), topic_results).encode(env))
                         }
                         Err(err) => {
-                            env.send_and_clear(&pid, move |env| err.to_string().encode(env))
+                            env.send_and_clear(&pid, move |env| (error(), err.to_string()).encode(env))
                         }
                     }
                 }
@@ -159,13 +166,27 @@ fn spawn_client(config: AdminConfig, mut rx: Receiver<AdminMsg>) {
                                 }
                             }
 
-                            env.send_and_clear(&pid, move |env| topic_results.encode(env))
+                            env.send_and_clear(&pid, move |env| (ok(), topic_results).encode(env))
                         }
                         Err(err) => {
-                            env.send_and_clear(&pid, move |env| err.to_string().encode(env))
+                            env.send_and_clear(&pid, move |env| (error(), err.to_string()).encode(env))
                         }
                     }
                 }
+                //Some(DescribeTopic(pid, topic)) => {
+                    //let specs = vec![ResourceSpecifier::Topic(&topic)];
+                //}
+                //Some(DescribeGroup(pid, group_id)) => {
+                    //let specs = vec![ResourceSpecifier::Group(&group_id)];
+                //}
+                //Some(DescribeBroker(pid, broker_id)) => {
+                    //let specs = vec![ResourceSpecifier::Broker(broker_id)];
+
+                    //match &admin.describe_configs(&specs, &admin_options).await {
+                        //Ok(config_resources) => {}
+                        //Err(err) => {}
+                    //}
+                //}
                 Some(Stop) => break,
                 None => continue,
             }

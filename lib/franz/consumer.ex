@@ -3,6 +3,7 @@ defmodule Franz.Consumer do
 
   alias Franz.{Consumer, Message, Native}
   alias Consumer.Config
+  require Logger
 
   @type error :: any()
 
@@ -19,8 +20,56 @@ defmodule Franz.Consumer do
       {:ok, ref} ->
         {:ok, %Consumer{ref: ref}}
 
-      {:error, error} ->
-        {:error, error}
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Subscribe to a list of topics.
+  """
+  @spec subscribe(Consumer.t(), [String.t()]) :: {:ok, Consumer.t()} | {:error, error()}
+  def subscribe(%Consumer{ref: ref}, topics) when is_list(topics) do
+    {:ok, ^ref} = Native.consumer_subscribe(ref, topics)
+
+    receive do
+      :ok ->
+        {:ok, %Consumer{ref: ref}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Unsubscribe from the current subscribed topics.
+  """
+  @spec unsubscribe(Consumer.t()) :: {:ok, Consumer.t()} | {:error, error()}
+  def unsubscribe(%Consumer{ref: ref}) do
+    {:ok, ^ref} = Native.consumer_unsubscribe(ref)
+
+    receive do
+      :ok ->
+        {:ok, %Consumer{ref: ref}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec receive_assignments(Consumer.t()) :: {:ok, Consumer.t()} | {:error, error()}
+  def receive_assignments(%Consumer{ref: ref} = consumer) do
+    {:ok, ^ref} = Native.consumer_poll(ref, 100)
+
+    receive do
+      {:pre_rebalance, _} ->
+        receive_assignments(consumer)
+
+      {:post_rebalance, assignments} ->
+        {:ok, consumer, assignments}
+    after
+      250 ->
+        receive_assignments(consumer)
     end
   end
 
@@ -28,22 +77,31 @@ defmodule Franz.Consumer do
   Poll for a message.
   """
   @spec poll(Consumer.t()) :: {:ok, Message.t()} | :none
-  def poll(%Consumer{ref: ref}, timeout \\ 250) do
-    case Native.consumer_poll(ref, timeout) do
-      {:ok, ^ref} ->
-        receive do
-          %Message{} = msg ->
-            {:ok, msg}
+  def poll(%Consumer{ref: ref} = consumer, timeout \\ 250) do
+    {:ok, ^ref} = Native.consumer_poll(ref, timeout)
 
-          nil ->
-            {:ok, nil}
+    receive do
+      :poll_ready ->
+        :poll_ready
 
-          {:error, _reason} = error ->
-            error
-        end
+      %Message{} = msg ->
+        msg
+    after
+      timeout ->
+        poll(consumer, timeout)
+    end
+  end
 
-      :error ->
-        :error
+  @doc """
+  Commit a topic partition.
+  """
+  @spec commit(Consumer.t(), Message.t()) :: {:ok, Consumer.t()} | :none
+  def commit(%Consumer{ref: ref} = consumer, %Message{} = msg) do
+    %Message{topic: topic, partition: partition, offset: offset} = msg
+    {:ok, ^ref} = Native.consumer_commit(ref, {topic, partition, offset})
+
+    receive do
+      {:ok, :commited} -> :ok
     end
   end
 

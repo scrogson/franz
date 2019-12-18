@@ -1,125 +1,241 @@
-//use crate::TOKIO;
-use crate::atoms::{ok, error};
+use crate::atoms::{self, ok, error};
 use crate::config::ConsumerConfig;
 use crate::message::Message;
 use crate::task;
-use rdkafka::consumer::{BaseConsumer, Consumer};
-use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rustler::{Atom, Encoder, Env, Error, OwnedEnv, Pid, ResourceArc, Term};
+use futures::StreamExt;
+use rdkafka::{ClientContext, ClientConfig, TopicPartitionList};
+use rdkafka::consumer::{ConsumerContext, StreamConsumer, CommitMode, Consumer, Rebalance};
+use rdkafka::error::KafkaResult;
+use rustler::{Atom, Encoder, Env, NifTuple, OwnedEnv, Pid, ResourceArc, Term};
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use log::trace;
+use log::{info, trace};
 
-struct ConsumerRef(Mutex<Sender<ConsumerMsg>>);
+pub enum Offset {
+    Beginning,
+    End,
+    Stored,
+    Invalid,
+    Offset(i64),
+}
 
-impl ConsumerRef {
-    fn new(tx: Sender<ConsumerMsg>) -> ResourceArc<ConsumerRef> {
-        ResourceArc::new(ConsumerRef(Mutex::new(tx)))
+impl From<&rdkafka::Offset> for Offset {
+    fn from(offset: &rdkafka::Offset) -> Offset {
+        match offset {
+            rdkafka::Offset::Beginning => Offset::Beginning,    
+            rdkafka::Offset::End => Offset::End,    
+            rdkafka::Offset::Stored => Offset::Stored,    
+            rdkafka::Offset::Invalid => Offset::Invalid,    
+            rdkafka::Offset::Offset(n) => Offset::Offset(*n),    
+        }
     }
 }
 
-enum ConsumerMsg {
+impl<'a> Encoder for Offset {
+    fn encode<'b>(&self, env: Env<'b>) -> Term<'b> {
+        match self {
+            Offset::Beginning => atoms::beginning().encode(env),
+            Offset::End => atoms::end().encode(env),
+            Offset::Stored => atoms::stored().encode(env),
+            Offset::Invalid => atoms::invalid().encode(env),
+            Offset::Offset(n) => (atoms::offset(), n).encode(env),
+        }
+    }
+}
+
+#[derive(NifTuple)]
+struct TopicPartitonOffset(String, i32, i64);
+
+enum Msg {
+    Commit(Pid, TopicPartitonOffset),
     Poll(Pid, u64),
+    Subscribe(Pid, Vec<String>),
+    Unsubscribe(Pid),
     Stop,
 }
 
+struct Ref(Mutex<Sender<Msg>>);
+
+impl Ref {
+    fn new(tx: Sender<Msg>) -> ResourceArc<Ref> {
+        ResourceArc::new(Ref(Mutex::new(tx)))
+    }
+}
+
+struct Context {
+    owner: Pid,
+}
+
+impl Context {
+    fn handle_rebalance(&self, pre_or_post: Atom, rebalance: &Rebalance) {
+        let mut env = OwnedEnv::new();
+        env.send_and_clear(&self.owner, move |env| {
+            match rebalance {
+                Rebalance::Assign(tpl) => {
+                    let assignments: Term = tpl.elements().iter().map(|e| {
+                        (e.topic(), e.partition(), Offset::from(&e.offset()))
+                    }).collect::<Vec<_>>().encode(env);
+                    (pre_or_post, (atoms::assign(), assignments)).encode(env)
+                }
+                Rebalance::Error(error) => {
+                    (pre_or_post, (atoms::error(), error)).encode(env)
+                }
+                Rebalance::Revoke => {
+                    (pre_or_post, atoms::revoke()).encode(env)
+                }
+            }
+        });
+    }
+}
+
+impl ClientContext for Context {}
+
+impl ConsumerContext for Context {
+    fn pre_rebalance(&self, rebalance: &Rebalance) {
+        self.handle_rebalance(atoms::pre_rebalance(), rebalance);
+    }
+
+    fn post_rebalance(&self, rebalance: &Rebalance) {
+        self.handle_rebalance(atoms::post_rebalance(), rebalance);
+    }
+
+    fn commit_callback(
+        &self,
+        _result: KafkaResult<()>,
+        offsets: &TopicPartitionList,
+    ) {
+        info!("Committing offsets: {:?}", offsets);
+    }
+
+    fn message_queue_nonempty_callback(&self) {
+        let mut env = OwnedEnv::new();
+        env.send_and_clear(&self.owner, move |env| {
+            atoms::poll_ready().encode(env)
+        });
+    }
+}
+
 pub fn load(env: Env) -> bool {
-    rustler::resource!(ConsumerRef, env);
+    rustler::resource!(Ref, env);
     true
 }
 
-#[rustler::nif(name = "consumer_start", schedule = "DirtyIo")]
-fn start(env: Env, config: ConsumerConfig) -> Result<(Atom, ResourceArc<ConsumerRef>), Error> {
-    let pid = env.pid();
-    let (tx, rx) = channel::<ConsumerMsg>(1000);
+#[rustler::nif(name = "consumer_start")]
+fn start(env: Env, config: ConsumerConfig) -> (Atom, ResourceArc<Ref>) {
+    let (tx, rx) = channel::<Msg>(1000);
+    spawn_consumer(env.pid(), config, rx);
 
-    spawn_consumer(pid, config, rx);
-
-    Ok((ok(), ConsumerRef::new(tx)))
+    (ok(), Ref::new(tx))
 }
 
-#[rustler::nif(name = "consumer_stop", schedule = "DirtyIo")]
-fn stop(resource: ResourceArc<ConsumerRef>) -> Atom {
-    let lock = resource.0.lock().expect("Failed to obtain a lock");
-    let mut sender = lock.clone();
-
-    task::spawn(async move {
-        match sender.send(ConsumerMsg::Stop).await {
-            Ok(_) => (),
-            Err(_err) => trace!("send error"),
-        }
-    });
+#[rustler::nif(name = "consumer_stop")]
+fn stop(resource: ResourceArc<Ref>) -> Atom {
+    send(resource, Msg::Stop);
 
     ok()
 }
 
-#[rustler::nif(name = "consumer_poll", schedule = "DirtyIo")]
-fn poll(env: Env, resource: ResourceArc<ConsumerRef>, timeout: u64) -> (Atom, ResourceArc<ConsumerRef>) {
-    let pid = env.pid();
+#[rustler::nif(name = "consumer_subscribe")]
+fn subscribe(
+    env: Env,
+    resource: ResourceArc<Ref>,
+    topics: Vec<String>
+) -> (Atom, ResourceArc<Ref>) {
+    send(resource.clone(), Msg::Subscribe(env.pid(), topics));
+
+    (ok(), resource)
+}
+
+#[rustler::nif(name = "consumer_unsubscribe")]
+fn unsubscribe(env: Env, resource: ResourceArc<Ref>) -> (Atom, ResourceArc<Ref>) {
+    send(resource.clone(), Msg::Unsubscribe(env.pid()));
+
+    (ok(), resource)
+}
+
+#[rustler::nif(name = "consumer_poll")]
+fn poll(env: Env, resource: ResourceArc<Ref>, timeout: u64) -> (Atom, ResourceArc<Ref>) {
+    send(resource.clone(), Msg::Poll(env.pid(), timeout));
+
+    (ok(), resource)
+}
+
+#[rustler::nif(name = "consumer_commit")]
+fn commit(env: Env, resource: ResourceArc<Ref>, tpo: TopicPartitonOffset) -> (Atom, ResourceArc<Ref>) {
+    send(resource.clone(), Msg::Commit(env.pid(), tpo));
+
+    (ok(), resource)
+}
+
+fn send(resource: ResourceArc<Ref>, msg: Msg) {
     let lock = resource.0.lock().expect("Failed to obtain a lock");
     let mut sender = lock.clone();
 
     task::spawn(async move {
-        match sender.send(ConsumerMsg::Poll(pid, timeout)).await {
+        match sender.send(msg).await {
             Ok(_) => (),
             Err(_err) => trace!("send error"),
         }
     });
-
-    (ok(), resource.clone())
 }
 
-fn spawn_consumer(owner: Pid, config: ConsumerConfig, mut rx: Receiver<ConsumerMsg>) {
+fn spawn_consumer(owner: Pid, config: ConsumerConfig, mut rx: Receiver<Msg>) {
     task::spawn(async move {
-        use ConsumerMsg::*;
+        use Msg::*;
 
+        let cfg: ClientConfig = config.into();
+        let consumer: StreamConsumer<Context> = cfg
+            .create_with_context(Context { owner: owner.clone() })
+            .expect("Failed to create Kafka consumer");
+        let mut stream = consumer.start_with(Duration::from_millis(100), true);
         let mut env = OwnedEnv::new();
-        let mut cfg = ClientConfig::new();
-
-        cfg.set("auto.offset.reset", &config.auto_offset_reset.to_string());
-        cfg.set("bootstrap.servers", &config.bootstrap_servers);
-        cfg.set("enable.auto.commit", &config.enable_auto_commit.to_string());
-
-        if let Some(group_id) = &config.group_id {
-            cfg.set("group.id", group_id);
-        }
-
-        cfg.set_log_level(RDKafkaLogLevel::Debug);
-
-        let consumer: BaseConsumer = cfg.create().expect("Failed to create Kafka consumer");
-
-        if config.topics.is_empty() {
-            env.send_and_clear(&owner, move |env| (error(), "Empty topics").encode(env));
-            return
-        } else {
-            let topics: Vec<_> = config.topics.iter().map(|s| s.as_str()).collect();
-            consumer.subscribe(&topics).expect(&format!("Failed to subscribe to topics: {:?}", &topics));
-        }
 
         loop {
             match rx.recv().await {
-                Some(Poll(pid, timeout)) => {
-                    match &consumer.poll(Duration::from_millis(timeout)) {
+                Some(Commit(pid, TopicPartitonOffset(topic, partition, offset))) => {
+                    let mut tpl = TopicPartitionList::new();
+                    tpl.add_partition_offset(&topic, partition, rdkafka::Offset::Offset(offset));
+
+                    match consumer.commit(&tpl, CommitMode::Sync) {
+                        Ok(()) => env.send_and_clear(&pid, move |env| {
+                            (ok(), atoms::commited()).encode(env)
+                        }),
+                        Err(err) => env.send_and_clear(&pid, move |env| {
+                            (error(), err.to_string()).encode(env)
+                        })
+                    }
+                }
+                Some(Subscribe(pid, topics)) => {
+                    if topics.is_empty() {
+                        env.send_and_clear(&pid, move |env| (error(), "Empty topics").encode(env))
+                    } else {
+                        let topics: Vec<_> = topics.iter().map(|s| s.as_str()).collect();
+                        consumer.subscribe(&topics).expect(&format!("Failed to subscribe to topics: {:?}", &topics));
+                        env.send_and_clear(&pid, move |env| ok().encode(env))
+                    }
+                }
+                Some(Unsubscribe(pid)) => {
+                    consumer.unsubscribe();
+                    env.send_and_clear(&pid, move |env| ok().encode(env))
+                }
+                Some(Poll(pid, _timeout)) => {
+                    match stream.next().await {
                         Some(Ok(msg)) => {
                             env.send_and_clear(&pid, move |env| {
-                                Message::from(msg).encode(env)
+                                Message::from(&msg).encode(env)
                             });
                         }
                         Some(Err(err)) => {
                             env.send_and_clear(&pid, move |env| {
-                                (error(), format!("{:?}", err)).encode(env)
+                                (error(), err.to_string()).encode(env)
                             });
                         }
-                        None => {
-                            env.send_and_clear(&pid, move |env| {
-                                None::<Term>.encode(env)
-                            });
-                        }
+                        None => {},
                     }
                 }
                 Some(Stop) => break,
-                None => continue,
+                None => {}
             }
         }
     });

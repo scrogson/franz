@@ -1,3 +1,4 @@
+use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rustler::{Encoder, NifStruct, NifUnitEnum};
 
 #[derive(NifUnitEnum)]
@@ -24,6 +25,22 @@ impl AutoOffsetReset {
             End => "end".to_string(),
             Error => "error".to_string(),
         }
+    }
+}
+
+impl Into<ClientConfig> for ConsumerConfig {
+    fn into(self) -> ClientConfig {
+        let mut cfg = ClientConfig::new();
+        cfg.set("auto.offset.reset", &self.auto_offset_reset.to_string());
+        cfg.set("bootstrap.servers", &self.bootstrap_servers);
+        cfg.set("enable.auto.commit", &self.enable_auto_commit.to_string());
+
+        if let Some(group_id) = &self.group_id {
+            cfg.set("group.id", group_id);
+        }
+
+        cfg.set_log_level(RDKafkaLogLevel::Debug);
+        cfg
     }
 }
 

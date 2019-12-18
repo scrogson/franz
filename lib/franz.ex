@@ -4,7 +4,7 @@ defmodule Franz do
   @type bootstrap_servers :: String.t()
   @type topic :: String.t()
   @type reason :: String.t()
-  @type create_topics_result :: {:ok, topic()} | {:error, topic(), reason()}
+  @type topic_result :: {:ok, topic()} | {:error, topic(), reason()}
 
   defmodule NewTopic do
     defstruct name: "",
@@ -23,48 +23,62 @@ defmodule Franz do
   end
 
   @doc """
-  Create a new topic.
+  Creates a new topic according to the provided `%NewTopic{}` specification.
   """
-  @spec create_topic(bootstrap_servers(), Franz.NewTopic.t()) :: create_topics_result()
+  @spec create_topic(bootstrap_servers(), Franz.NewTopic.t()) :: topic_result()
   def create_topic(bootstrap_servers, %Franz.NewTopic{} = topic) do
-    [result] = create_topics(bootstrap_servers, [topic])
-    result
+    case create_topics(bootstrap_servers, [topic]) do
+      [{:ok, _}] -> :ok
+      [{:error, {_, error}}] -> {:error, error}
+    end
   end
 
   @doc """
-  Create multiple new topics.
+  Creates new topics according to the provided `%NewTopic{}` specifications.
+
+  Note that while the API supports creating multiple topics at once, it is not
+  transactional. Creation of some topics may succeed while others fail. Be sure
+  to check the result of each individual operation.
   """
-  @spec create_topics(bootstrap_servers(), [Franz.NewTopic.t()]) :: [create_topics_result()]
+  @spec create_topics(bootstrap_servers(), [Franz.NewTopic.t()]) :: [topic_result()]
   def create_topics(bootstrap_servers, topics) when is_list(topics) do
     config = %Admin.Config{bootstrap_servers: bootstrap_servers}
     {:ok, ref} = Native.admin_start(config)
     {:ok, ^ref} = Native.create_topics(ref, topics)
 
     receive do
-      result -> result
+      {:ok, results} -> results
+      {:error, error} -> {:error, error}
     end
   end
 
   @doc """
-  Delete a new topic.
+  Delete a named topic.
   """
-  @spec delete_topic(bootstrap_servers(), topic()) :: create_topics_result()
+  @spec delete_topic(bootstrap_servers(), topic()) :: topic_result()
   def delete_topic(bootstrap_servers, topic) when is_binary(topic) do
-    [result] = delete_topics(bootstrap_servers, [topic])
-    result
+    case delete_topics(bootstrap_servers, [topic]) do
+      [{:ok, _}] -> :ok
+      [{:error, {_, error}}] -> {:error, error}
+    end
   end
 
   @doc """
-  Delete multiple new topics.
+  Deletes the named topics.
+
+  Note that while the API supports deleting multiple topics at once, it is not
+  transactional. Deletion of some topics may succeed while others fail. Be sure
+  to check the result of each individual operation.
   """
-  @spec delete_topics(bootstrap_servers(), [topic()]) :: [create_topics_result()]
+  @spec delete_topics(bootstrap_servers(), [topic()]) :: [topic_result()]
   def delete_topics(bootstrap_servers, topics) when is_list(topics) do
     config = %Admin.Config{bootstrap_servers: bootstrap_servers}
     {:ok, ref} = Native.admin_start(config)
     {:ok, ^ref} = Native.delete_topics(ref, topics)
 
     receive do
-      result -> result
+      {:ok, results} -> results
+      {:error, error} -> {:error, error}
     end
   end
 end

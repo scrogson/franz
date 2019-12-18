@@ -1,76 +1,65 @@
-use crate::TOKIO;
 use crate::atoms::{ok, error};
 use crate::config::ProducerConfig;
 use crate::message::Message;
-use rdkafka::producer::{FutureProducer, Producer};
+use crate::task;
+use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rustler::{Atom, Decoder, Encoder, Env, Error, NifStruct, OwnedBinary, OwnedEnv, Pid, ResourceArc, Term};
+use rustler::{Atom, Encoder, Env, OwnedEnv, Pid, ResourceArc};
 use std::sync::Mutex;
-use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use log::trace;
+use log::{error, trace};
 
-struct ProducerRef(Mutex<Sender<ProducerMsg>>);
+struct Ref(Mutex<Sender<Msg>>);
 
-impl ProducerRef {
-    fn new(tx: Sender<ProducerMsg>) -> ResourceArc<ProducerRef> {
-        ResourceArc::new(ProducerRef(Mutex::new(tx)))
+impl Ref {
+    fn new(tx: Sender<Msg>) -> ResourceArc<Ref> {
+        ResourceArc::new(Ref(Mutex::new(tx)))
     }
 }
 
-enum ProducerMsg {
-    Poll(Pid, u64),
+enum Msg {
+    Send(Pid, Message),
     Stop,
 }
 
 pub fn load(env: Env) -> bool {
-    rustler::resource!(ProducerRef, env);
+    rustler::resource!(Ref, env);
     true
 }
 
-#[rustler::nif(name = "producer_start", schedule = "DirtyIo")]
-fn start(env: Env, config: ProducerConfig) -> (Atom, ResourceArc<ProducerRef>) {
-    let pid = env.pid();
-    let (tx, rx) = channel::<ProducerMsg>(1000);
-
-    spawn_producer(pid, config, rx);
-
-    (ok(), ProducerRef::new(tx))
+#[rustler::nif(name = "producer_start")]
+fn start(config: ProducerConfig) -> (Atom, ResourceArc<Ref>) {
+    let (tx, rx) = channel::<Msg>(1000);
+    spawn_producer(config, rx);
+    (ok(), Ref::new(tx))
 }
 
-#[rustler::nif(name = "producer_stop", schedule = "DirtyIo")]
-fn stop(resource: ResourceArc<ProducerRef>, timeout: u64) -> Atom {
-    let lock = resource.0.lock().expect("Failed to obtain a lock");
-    let mut sender = lock.clone();
-
-    TOKIO.spawn(async move {
-        match sender.send(ProducerMsg::Stop).await {
-            Ok(_) => (),
-            Err(_err) => trace!("send error"),
-        }
-    });
-
+#[rustler::nif(name = "producer_stop")]
+fn stop(resource: ResourceArc<Ref>) -> Atom {
+    send(resource, Msg::Stop);
     ok()
 }
 
-#[rustler::nif(name = "producer_poll", schedule = "DirtyIo")]
-fn poll(env: Env, resource: ResourceArc<ProducerRef>, timeout: u64) -> Term {
-    let pid = env.pid();
+#[rustler::nif(name = "producer_send")]
+fn deliver(env: Env, resource: ResourceArc<Ref>, msg: Message) -> (Atom, ResourceArc<Ref>) {
+    send(resource.clone(), Msg::Send(env.pid(), msg));
+    (ok(), resource)
+}
+
+fn send(resource: ResourceArc<Ref>, msg: Msg) {
     let lock = resource.0.lock().expect("Failed to obtain a lock");
     let mut sender = lock.clone();
 
-    TOKIO.spawn(async move {
-        match sender.send(ProducerMsg::Poll(pid, timeout)).await {
+    task::spawn(async move {
+        match sender.send(msg).await {
             Ok(_) => (),
             Err(_err) => trace!("send error"),
         }
     });
-
-    (ok(), resource.clone()).encode(env)
 }
 
-fn spawn_producer(owner: Pid, config: ProducerConfig, mut rx: Receiver<ProducerMsg>) {
-    TOKIO.spawn(async move {
+fn spawn_producer(config: ProducerConfig, mut rx: Receiver<Msg>) {
+    task::spawn(async move {
         let mut env = OwnedEnv::new();
         let mut cfg = ClientConfig::new();
 
@@ -81,26 +70,38 @@ fn spawn_producer(owner: Pid, config: ProducerConfig, mut rx: Receiver<ProducerM
 
         loop {
             match rx.recv().await {
-                Some(ProducerMsg::Send(pid, timeout)) => {
-                    match &producer.poll(Duration::from_millis(timeout)) {
-                        Some(Ok(msg)) => {
+                Some(Msg::Send(pid, msg)) => {
+                    let mut record = FutureRecord::to(&msg.topic);
+
+                    if let Some(payload) = &msg.payload {
+                        record = record.payload(&payload.0);
+                    }
+                    if let Some(key) = &msg.key {
+                        record = record.key(&key.0);
+                    }
+
+                    record = record.partition(msg.partition);
+
+                    if let Some(timestamp) = msg.timestamp {
+                        record = record.timestamp(timestamp);
+                    }
+
+                    match &producer.send(record, 0).await {
+                        Ok(msg) => {
+                            trace!("{:?}", msg);
                             env.send_and_clear(&pid, move |env| {
-                                Message::from(msg).encode(env)
+                                ok().encode(env)
                             });
                         }
-                        Some(Err(err)) => {
+                        Err(err) => {
+                            error!("{:?}", err);
                             env.send_and_clear(&pid, move |env| {
                                 (error(), format!("{:?}", err)).encode(env)
                             });
                         }
-                        None => {
-                            env.send_and_clear(&pid, move |env| {
-                                None::<Term>.encode(env)
-                            });
-                        }
                     }
                 }
-                Some(Stop) => break,
+                Some(Msg::Stop) => break,
                 None => continue,
             }
         }

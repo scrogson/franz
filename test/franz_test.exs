@@ -9,12 +9,12 @@ defmodule FranzTest do
   test "creating/deleting topic", %{brokers: brokers} do
     topic = Franz.Utils.random_bytes()
 
-    assert {:ok, ^topic} = Franz.create_topic(brokers, %Franz.NewTopic{name: topic})
+    assert :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic})
 
     # Wait for the Broker to commit the new topic
     Process.sleep(100)
 
-    assert {:ok, ^topic} = Franz.delete_topic(brokers, topic)
+    assert :ok = Franz.delete_topic(brokers, topic)
   end
 
   test "creating/deleting multiple topics", %{brokers: brokers} do

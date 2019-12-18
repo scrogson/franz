@@ -15,5 +15,6 @@ futures = "0.3"
 lazy_static = "1.4"
 log = "0.4"
 rdkafka = { git = "https://github.com/fede1024/rust-rdkafka" }
+rdkafka-sys = { git = "https://github.com/fede1024/rust-rdkafka" }
 rustler = { git = "https://github.com/rusterlium/rustler", branch = "fix_send_and_clear" }
 tokio = { version = "0.2", features = ["full"] }

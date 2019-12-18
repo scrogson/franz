@@ -1,5 +1,6 @@
 defmodule Franz.Producer do
-  alias Franz.Producer
+  alias Franz.{Message, Native, Producer}
+  alias Producer.Config
 
   defstruct ref: nil
 
@@ -18,8 +19,8 @@ defmodule Franz.Producer do
     end
   end
 
-  def poll(%Producer{ref: ref}, timeout \\ 100) do
-    case Native.producer_poll(ref, timeout) do
+  def send(%Producer{ref: ref}, %Message{} = message) do
+    case Native.producer_send(ref, message) do
       {:ok, ^ref} ->
         receive do
           {:error, _reason} = error ->
