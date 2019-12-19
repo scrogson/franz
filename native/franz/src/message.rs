@@ -1,5 +1,5 @@
 use rdkafka::message::{BorrowedMessage, Message as _};
-use rustler::{Decoder, Encoder, Env, Error, NifStruct, OwnedBinary, Term};
+use rustler::{Binary, Decoder, Encoder, Env, Error, NifStruct, OwnedBinary, Term};
 use std::io::Write as _;
 
 #[derive(NifStruct)]
@@ -40,6 +40,8 @@ impl<'a> Encoder for Bin {
 
 impl<'a> Decoder<'a> for Bin {
     fn decode(term: Term<'a>) -> Result<Bin, Error> {
-        Ok(Bin(term.decode::<Vec<u8>>()?))
+        let binary: Binary = term.decode()?;
+        let bytes: Vec<u8> = binary.as_slice().to_owned();
+        Ok(Bin(bytes))
     }
 }

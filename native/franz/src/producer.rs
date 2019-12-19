@@ -71,20 +71,20 @@ fn spawn_producer(config: ProducerConfig, mut rx: Receiver<Msg>) {
         loop {
             match rx.recv().await {
                 Some(Msg::Send(pid, msg)) => {
-                    let mut record = FutureRecord::to(&msg.topic);
+                    let topic = &msg.topic;
+                    let partition = Some(msg.partition.clone());
+                    let key = msg.key.map(|k| k.0);
+                    let payload = msg.payload.map(|p| p.0);
+                    let timestamp = msg.timestamp;
 
-                    if let Some(payload) = &msg.payload {
-                        record = record.payload(&payload.0);
-                    }
-                    if let Some(key) = &msg.key {
-                        record = record.key(&key.0);
-                    }
-
-                    record = record.partition(msg.partition);
-
-                    if let Some(timestamp) = msg.timestamp {
-                        record = record.timestamp(timestamp);
-                    }
+                    let record = FutureRecord {
+                        topic,
+                        partition,
+                        key: key.as_ref(),
+                        payload: payload.as_ref(),
+                        timestamp,
+                        headers: None
+                    };
 
                     match &producer.send(record, 0).await {
                         Ok(msg) => {

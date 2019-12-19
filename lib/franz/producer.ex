@@ -19,19 +19,20 @@ defmodule Franz.Producer do
     end
   end
 
-  def send(%Producer{ref: ref}, %Message{} = message) do
-    case Native.producer_send(ref, message) do
-      {:ok, ^ref} ->
-        receive do
-          {:error, _reason} = error ->
-            error
+  def send(%Producer{ref: ref}, %Message{} = msg) do
+    {:ok, ^ref} = Native.producer_send(ref, msg)
 
-          any ->
-            {:ok, any}
-        end
+    receive do
+      :ok ->
+        :ok
 
-      :error ->
-        :error
+      {:error, _reason} = error ->
+        error
     end
+  end
+
+  @spec stop(Producer.t()) :: :ok | {:error, term()}
+  def stop(%Producer{ref: ref}) do
+    Native.producer_stop(ref)
   end
 end

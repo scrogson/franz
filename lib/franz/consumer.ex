@@ -42,6 +42,25 @@ defmodule Franz.Consumer do
   end
 
   @doc """
+  Subscribe to a list of topics.
+  """
+  @spec assignment(Consumer.t()) :: {:ok, list()} | {:error, error()}
+  def assignment(%Consumer{ref: ref}) do
+    {:ok, ^ref} = Native.consumer_assignment(ref)
+
+    receive do
+      {:assignments, assignments} ->
+        {:ok, assignments}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        other
+    end
+  end
+
+  @doc """
   Unsubscribe from the current subscribed topics.
   """
   @spec unsubscribe(Consumer.t()) :: {:ok, Consumer.t()} | {:error, error()}
@@ -59,16 +78,19 @@ defmodule Franz.Consumer do
 
   @spec receive_assignments(Consumer.t()) :: {:ok, Consumer.t()} | {:error, error()}
   def receive_assignments(%Consumer{ref: ref} = consumer) do
-    {:ok, ^ref} = Native.consumer_poll(ref, 100)
+    {:ok, ^ref} = Native.consumer_poll(ref)
 
     receive do
       {:pre_rebalance, _} ->
         receive_assignments(consumer)
 
-      {:post_rebalance, assignments} ->
-        {:ok, consumer, assignments}
+      {:post_rebalance, {:assign, assignments}} ->
+        receive do
+          :poll_ready ->
+            {:ok, assignments}
+        end
     after
-      250 ->
+      100 ->
         receive_assignments(consumer)
     end
   end
@@ -77,17 +99,15 @@ defmodule Franz.Consumer do
   Poll for a message.
   """
   @spec poll(Consumer.t()) :: {:ok, Message.t()} | :none
-  def poll(%Consumer{ref: ref} = consumer, timeout \\ 250) do
-    {:ok, ^ref} = Native.consumer_poll(ref, timeout)
+  def poll(%Consumer{ref: ref} = consumer, timeout \\ 100) do
+    {:ok, ^ref} = Native.consumer_poll(ref)
 
     receive do
-      :poll_ready ->
-        :poll_ready
-
       %Message{} = msg ->
         msg
     after
       timeout ->
+        Logger.warn("Poll timeout after #{timeout}ms")
         poll(consumer, timeout)
     end
   end
@@ -101,7 +121,21 @@ defmodule Franz.Consumer do
     {:ok, ^ref} = Native.consumer_commit(ref, {topic, partition, offset})
 
     receive do
-      {:ok, :commited} -> :ok
+      {:ok, :committed} -> :ok
+    end
+  end
+
+  @doc """
+  Retrieve committed offsets for topics and partitions.
+  """
+  @spec committed(Consumer.t(), number()) :: {:ok, list()} | {:error, term()}
+  def committed(%Consumer{ref: ref} = consumer, timeout \\ 100) do
+    {:ok, ^ref} = Native.consumer_committed(ref, timeout)
+
+    receive do
+      {:ok, tpl} ->
+        # Enum.reduce(tpl, %{}, )
+        {:ok, tpl}
     end
   end
 

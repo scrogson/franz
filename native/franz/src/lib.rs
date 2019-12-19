@@ -34,8 +34,10 @@ rustler::init!(
         consumer::stop,
         consumer::subscribe,
         consumer::unsubscribe,
+        consumer::assignment,
         consumer::poll,
         consumer::commit,
+        consumer::committed,
         //consumer::pause,
         //consumer::resume,
         // Producer API

@@ -49,6 +49,7 @@ defmodule Franz do
     receive do
       {:ok, results} -> results
       {:error, error} -> {:error, error}
+      other -> other
     end
   end
 

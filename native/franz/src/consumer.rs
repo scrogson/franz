@@ -5,12 +5,11 @@ use crate::task;
 use futures::StreamExt;
 use rdkafka::{ClientContext, ClientConfig, TopicPartitionList};
 use rdkafka::consumer::{ConsumerContext, StreamConsumer, CommitMode, Consumer, Rebalance};
-use rdkafka::error::KafkaResult;
 use rustler::{Atom, Encoder, Env, NifTuple, OwnedEnv, Pid, ResourceArc, Term};
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use log::{info, trace};
+use log::trace;
 
 pub enum Offset {
     Beginning,
@@ -23,11 +22,11 @@ pub enum Offset {
 impl From<&rdkafka::Offset> for Offset {
     fn from(offset: &rdkafka::Offset) -> Offset {
         match offset {
-            rdkafka::Offset::Beginning => Offset::Beginning,    
-            rdkafka::Offset::End => Offset::End,    
-            rdkafka::Offset::Stored => Offset::Stored,    
-            rdkafka::Offset::Invalid => Offset::Invalid,    
-            rdkafka::Offset::Offset(n) => Offset::Offset(*n),    
+            rdkafka::Offset::Beginning => Offset::Beginning,
+            rdkafka::Offset::End => Offset::End,
+            rdkafka::Offset::Stored => Offset::Stored,
+            rdkafka::Offset::Invalid => Offset::Invalid,
+            rdkafka::Offset::Offset(n) => Offset::Offset(*n),
         }
     }
 }
@@ -48,11 +47,13 @@ impl<'a> Encoder for Offset {
 struct TopicPartitonOffset(String, i32, i64);
 
 enum Msg {
+    Assignment(Pid),
     Commit(Pid, TopicPartitonOffset),
-    Poll(Pid, u64),
+    Committed(Pid, u64),
+    Poll(Pid),
+    Stop,
     Subscribe(Pid, Vec<String>),
     Unsubscribe(Pid),
-    Stop,
 }
 
 struct Ref(Mutex<Sender<Msg>>);
@@ -100,13 +101,13 @@ impl ConsumerContext for Context {
         self.handle_rebalance(atoms::post_rebalance(), rebalance);
     }
 
-    fn commit_callback(
-        &self,
-        _result: KafkaResult<()>,
-        offsets: &TopicPartitionList,
-    ) {
-        info!("Committing offsets: {:?}", offsets);
-    }
+    //fn commit_callback(
+        //&self,
+        //_result: rdkafka::error::KafkaResult<()>,
+        //offsets: &TopicPartitionList,
+    //) {
+        //info!("Committing offsets: {:?}", offsets);
+    //}
 
     fn message_queue_nonempty_callback(&self) {
         let mut env = OwnedEnv::new();
@@ -154,9 +155,16 @@ fn unsubscribe(env: Env, resource: ResourceArc<Ref>) -> (Atom, ResourceArc<Ref>)
     (ok(), resource)
 }
 
+#[rustler::nif(name = "consumer_assignment")]
+fn assignment(env: Env, resource: ResourceArc<Ref>) -> (Atom, ResourceArc<Ref>) {
+    send(resource.clone(), Msg::Assignment(env.pid()));
+
+    (ok(), resource)
+}
+
 #[rustler::nif(name = "consumer_poll")]
-fn poll(env: Env, resource: ResourceArc<Ref>, timeout: u64) -> (Atom, ResourceArc<Ref>) {
-    send(resource.clone(), Msg::Poll(env.pid(), timeout));
+fn poll(env: Env, resource: ResourceArc<Ref>) -> (Atom, ResourceArc<Ref>) {
+    send(resource.clone(), Msg::Poll(env.pid()));
 
     (ok(), resource)
 }
@@ -164,6 +172,13 @@ fn poll(env: Env, resource: ResourceArc<Ref>, timeout: u64) -> (Atom, ResourceAr
 #[rustler::nif(name = "consumer_commit")]
 fn commit(env: Env, resource: ResourceArc<Ref>, tpo: TopicPartitonOffset) -> (Atom, ResourceArc<Ref>) {
     send(resource.clone(), Msg::Commit(env.pid(), tpo));
+
+    (ok(), resource)
+}
+
+#[rustler::nif(name = "consumer_committed")]
+fn committed(env: Env, resource: ResourceArc<Ref>, timeout: u64) -> (Atom, ResourceArc<Ref>) {
+    send(resource.clone(), Msg::Committed(env.pid(), timeout));
 
     (ok(), resource)
 }
@@ -182,8 +197,6 @@ fn send(resource: ResourceArc<Ref>, msg: Msg) {
 
 fn spawn_consumer(owner: Pid, config: ConsumerConfig, mut rx: Receiver<Msg>) {
     task::spawn(async move {
-        use Msg::*;
-
         let cfg: ClientConfig = config.into();
         let consumer: StreamConsumer<Context> = cfg
             .create_with_context(Context { owner: owner.clone() })
@@ -193,48 +206,93 @@ fn spawn_consumer(owner: Pid, config: ConsumerConfig, mut rx: Receiver<Msg>) {
 
         loop {
             match rx.recv().await {
-                Some(Commit(pid, TopicPartitonOffset(topic, partition, offset))) => {
+                Some(Msg::Assignment(pid)) => {
+                    trace!("Fetching assignments");
+                    match consumer.subscription() {
+                        Ok(tpl) => {
+                            trace!("{:?}", &tpl);
+                            env.send_and_clear(&pid, move |env| {
+                            let assignments: Term = tpl.elements().iter().map(|e| {
+                                (e.topic(), e.partition(), Offset::from(&e.offset()))
+                            }).collect::<Vec<_>>().encode(env);
+                            (atoms::assignments(), assignments).encode(env)
+                        })
+                        },
+                        Err(err) => env.send_and_clear(&pid, move |env| {
+                            (error(), err.to_string()).encode(env)
+                        })
+                    }
+                }
+
+                Some(Msg::Commit(pid, TopicPartitonOffset(topic, partition, offset))) => {
                     let mut tpl = TopicPartitionList::new();
                     tpl.add_partition_offset(&topic, partition, rdkafka::Offset::Offset(offset));
 
+                    trace!("Committing topic={}, partition={}, offset={}", &topic, &partition, &offset);
+
                     match consumer.commit(&tpl, CommitMode::Sync) {
                         Ok(()) => env.send_and_clear(&pid, move |env| {
-                            (ok(), atoms::commited()).encode(env)
+                            (ok(), atoms::committed()).encode(env)
                         }),
                         Err(err) => env.send_and_clear(&pid, move |env| {
                             (error(), err.to_string()).encode(env)
                         })
                     }
                 }
-                Some(Subscribe(pid, topics)) => {
+
+                Some(Msg::Committed(pid, timeout)) => {
+                    trace!("Fetching committed");
+                    match consumer.committed(Duration::from_millis(timeout)) {
+                        Ok(tpl) => {
+                            env.send_and_clear(&pid, move |env| {
+                            let assignments: Term = tpl.elements().iter().map(|e| {
+                                (e.topic(), e.partition(), Offset::from(&e.offset()))
+                            }).collect::<Vec<_>>().encode(env);
+                            (ok(), assignments).encode(env)
+                        })
+                        },
+                        Err(err) => env.send_and_clear(&pid, move |env| {
+                            (error(), err.to_string()).encode(env)
+                        })
+                    }
+                }
+
+                Some(Msg::Subscribe(pid, topics)) => {
                     if topics.is_empty() {
                         env.send_and_clear(&pid, move |env| (error(), "Empty topics").encode(env))
                     } else {
                         let topics: Vec<_> = topics.iter().map(|s| s.as_str()).collect();
+                        trace!("Subscribing to topics={:?}", &topics);
                         consumer.subscribe(&topics).expect(&format!("Failed to subscribe to topics: {:?}", &topics));
                         env.send_and_clear(&pid, move |env| ok().encode(env))
                     }
                 }
-                Some(Unsubscribe(pid)) => {
+
+                Some(Msg::Unsubscribe(pid)) => {
                     consumer.unsubscribe();
                     env.send_and_clear(&pid, move |env| ok().encode(env))
                 }
-                Some(Poll(pid, _timeout)) => {
+
+                Some(Msg::Poll(pid)) => {
                     match stream.next().await {
                         Some(Ok(msg)) => {
                             env.send_and_clear(&pid, move |env| {
                                 Message::from(&msg).encode(env)
                             });
                         }
+
                         Some(Err(err)) => {
                             env.send_and_clear(&pid, move |env| {
                                 (error(), err.to_string()).encode(env)
                             });
                         }
+
                         None => {},
                     }
                 }
-                Some(Stop) => break,
+
+                Some(Msg::Stop) => break,
+
                 None => {}
             }
         }

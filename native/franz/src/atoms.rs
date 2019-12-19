@@ -6,6 +6,7 @@ rustler::atoms! {
     poll_ready,
     revoke,
     assign,
+    assignments,
     beginning,
     end,
     stored,
@@ -13,5 +14,5 @@ rustler::atoms! {
     offset,
     topic,
     partition,
-    commited,
+    committed,
 }
