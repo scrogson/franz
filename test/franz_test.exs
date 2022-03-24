@@ -3,7 +3,7 @@ defmodule FranzTest do
   doctest Franz
 
   setup do
-    {:ok, brokers: "localhost:9092"}
+    {:ok, brokers: "localhost:9094"}
   end
 
   test "creating/deleting topic", %{brokers: brokers} do
