@@ -4,7 +4,7 @@ use crate::message::Message;
 use crate::task;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rustler::{Atom, Encoder, Env, OwnedEnv, Pid, ResourceArc};
+use rustler::{Atom, Encoder, Env, OwnedEnv, LocalPid, ResourceArc};
 use std::sync::Mutex;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use log::{error, trace};
@@ -18,7 +18,7 @@ impl Ref {
 }
 
 enum Msg {
-    Send(Pid, Message),
+    Send(LocalPid, Message),
     Stop,
 }
 

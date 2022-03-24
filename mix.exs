@@ -5,7 +5,7 @@ defmodule Franz.MixProject do
     [
       app: :franz,
       version: "0.1.0",
-      elixir: "~> 1.8",
+      elixir: "~> 1.13",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -19,11 +19,7 @@ defmodule Franz.MixProject do
 
   defp deps do
     [
-      {:rustler,
-       github: "rusterlium/rustler",
-       sparse: "rustler_mix",
-       branch: "compiler_options",
-       runtime: false}
+      {:rustler, "~> 0.24.0"}
     ]
   end
 end

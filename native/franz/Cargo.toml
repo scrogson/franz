@@ -13,8 +13,8 @@ crate-type = ["cdylib"]
 env_logger = "0.7"
 futures = "0.3"
 log = "0.4"
-once_cell = "1.2.0"
+once_cell = "1.10.0"
 rdkafka = { git = "https://github.com/fede1024/rust-rdkafka" }
 rdkafka-sys = { git = "https://github.com/fede1024/rust-rdkafka" }
-rustler = { git = "https://github.com/rusterlium/rustler", branch = "fix_send_and_clear" }
-tokio = { version = "0.2", features = ["full"] }
+rustler = { git = "https://github.com/rusterlium/rustler" }
+tokio = { version = "1", features = ["full"] }
