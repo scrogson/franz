@@ -1,5 +1,5 @@
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rustler::{Encoder, NifStruct, NifUnitEnum};
+use rustler::{NifStruct, NifUnitEnum};
 
 #[derive(NifUnitEnum)]
 pub enum AutoOffsetReset {

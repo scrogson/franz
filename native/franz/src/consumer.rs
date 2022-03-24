@@ -5,7 +5,7 @@ use crate::task;
 use futures::StreamExt;
 use rdkafka::{ClientContext, ClientConfig, TopicPartitionList};
 use rdkafka::consumer::{ConsumerContext, StreamConsumer, CommitMode, Consumer, Rebalance};
-use rustler::{Atom, Encoder, Env, NifTuple, OwnedEnv, Pid, ResourceArc, Term};
+use rustler::{Atom, Encoder, Env, NifTuple, OwnedEnv, LocalPid, ResourceArc, Term};
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -47,13 +47,13 @@ impl<'a> Encoder for Offset {
 struct TopicPartitonOffset(String, i32, i64);
 
 enum Msg {
-    Assignment(Pid),
-    Commit(Pid, TopicPartitonOffset),
-    Committed(Pid, u64),
-    Poll(Pid),
+    Assignment(LocalPid),
+    Commit(LocalPid, TopicPartitonOffset),
+    Committed(LocalPid, u64),
+    Poll(LocalPid),
     Stop,
-    Subscribe(Pid, Vec<String>),
-    Unsubscribe(Pid),
+    Subscribe(LocalPid, Vec<String>),
+    Unsubscribe(LocalPid),
 }
 
 struct Ref(Mutex<Sender<Msg>>);
@@ -65,7 +65,7 @@ impl Ref {
 }
 
 struct Context {
-    owner: Pid,
+    owner: LocalPid,
 }
 
 impl Context {
@@ -195,7 +195,7 @@ fn send(resource: ResourceArc<Ref>, msg: Msg) {
     });
 }
 
-fn spawn_consumer(owner: Pid, config: ConsumerConfig, mut rx: Receiver<Msg>) {
+fn spawn_consumer(owner: LocalPid, config: ConsumerConfig, mut rx: Receiver<Msg>) {
     task::spawn(async move {
         let cfg: ClientConfig = config.into();
         let consumer: StreamConsumer<Context> = cfg

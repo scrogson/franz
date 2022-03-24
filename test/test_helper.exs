@@ -1,2 +1,3 @@
-Franz.delete_topic("localhost:9094", "test")
+Franz.delete_topic("localhost:9092", "test")
+
 ExUnit.start()

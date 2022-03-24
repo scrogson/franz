@@ -5,7 +5,7 @@ defmodule Franz.ConsumerTest do
   alias Franz.{Consumer, Producer}
 
   setup do
-    brokers = "localhost:9094"
+    brokers = "localhost:9092"
     topic = Franz.Utils.random_bytes()
     num_partitions = 10
 

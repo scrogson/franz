@@ -4,8 +4,7 @@ use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
 static TOKIO: Lazy<Runtime> = Lazy::new(|| {
-    Builder::new()
-        .threaded_scheduler()
+    Builder::new_multi_thread()
         .build()
         .expect("Franz.Native: Failed to start tokio runtime")
 });

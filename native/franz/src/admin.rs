@@ -6,7 +6,7 @@ use rdkafka::client::DefaultClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::admin::AdminClient;
 use rustler::{
-    Atom, Encoder, Env, NifStruct, OwnedEnv, Pid, ResourceArc
+    Atom, Encoder, Env, NifStruct, OwnedEnv, LocalPid, ResourceArc
 };
 use std::sync::Mutex;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -31,8 +31,8 @@ impl AdminRef {
 }
 
 enum AdminMsg {
-    CreateTopics(Pid, Vec<NewTopic>),
-    DeleteTopics(Pid, Vec<String>),
+    CreateTopics(LocalPid, Vec<NewTopic>),
+    DeleteTopics(LocalPid, Vec<String>),
     Stop,
 }
 
