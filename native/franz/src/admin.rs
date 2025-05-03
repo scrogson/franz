@@ -1,12 +1,12 @@
 use crate::atoms::{error, ok};
 use crate::config::AdminConfig;
-use crate::task;
-use log::trace;
+use crate::runtime;
+use tracing::trace;
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::admin::AdminClient;
 use rustler::{
-    Atom, Encoder, Env, NifStruct, OwnedEnv, Pid, ResourceArc
+    Atom, Encoder, Env, NifStruct, OwnedEnv, LocalPid, Resource, ResourceArc, Term
 };
 use std::sync::Mutex;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -24,6 +24,9 @@ pub struct NewTopic {
 
 pub struct AdminRef(Mutex<Sender<AdminMsg>>);
 
+#[rustler::resource_impl]
+impl Resource for AdminRef {}
+
 impl AdminRef {
     fn new(tx: Sender<AdminMsg>) -> ResourceArc<AdminRef> {
         ResourceArc::new(AdminRef(Mutex::new(tx)))
@@ -31,16 +34,10 @@ impl AdminRef {
 }
 
 enum AdminMsg {
-    CreateTopics(Pid, Vec<NewTopic>),
-    DeleteTopics(Pid, Vec<String>),
+    CreateTopics(LocalPid, Vec<NewTopic>),
+    DeleteTopics(LocalPid, Vec<String>),
     Stop,
 }
-
-pub fn load(env: Env) -> bool {
-    rustler::resource!(AdminRef, env);
-    true
-}
-
 
 #[rustler::nif(name = "admin_start")]
 fn start(config: AdminConfig) -> (Atom, ResourceArc<AdminRef>) {
@@ -54,9 +51,9 @@ fn start(config: AdminConfig) -> (Atom, ResourceArc<AdminRef>) {
 #[rustler::nif(name = "admin_stop")]
 fn stop(resource: ResourceArc<AdminRef>) -> Atom {
     let lock = resource.0.lock().expect("Failed to obtain a lock");
-    let mut sender = lock.clone();
+    let sender = lock.clone();
 
-    task::spawn(async move {
+    runtime::spawn(async move {
         match sender.send(AdminMsg::Stop).await {
             Ok(_) => (),
             Err(_err) => trace!("send error"),
@@ -75,9 +72,9 @@ pub fn create_topics(
 ) -> (Atom, ResourceArc<AdminRef>) {
     let pid = env.pid();
     let lock = resource.0.lock().expect("Failed to obtain a lock");
-    let mut sender = lock.clone();
+    let sender = lock.clone();
 
-    task::spawn(async move {
+    runtime::spawn(async move {
         match sender.send(AdminMsg::CreateTopics(pid, topics)).await {
             Ok(_) => (),
             Err(_err) => trace!("send error"),
@@ -95,9 +92,9 @@ pub fn delete_topics(
 ) -> (Atom, ResourceArc<AdminRef>) {
     let pid = env.pid();
     let lock = resource.0.lock().expect("Failed to obtain a lock");
-    let mut sender = lock.clone();
+    let sender = lock.clone();
 
-    task::spawn(async move {
+    runtime::spawn(async move {
         match sender.send(AdminMsg::DeleteTopics(pid, topics)).await {
             Ok(_) => (),
             Err(_err) => trace!("send error"),
@@ -108,7 +105,7 @@ pub fn delete_topics(
 }
 
 fn spawn_client(config: AdminConfig, mut rx: Receiver<AdminMsg>) {
-    task::spawn(async move {
+    runtime::spawn(async move {
         use AdminMsg::*;
 
         let mut env = OwnedEnv::new();
@@ -137,7 +134,7 @@ fn spawn_client(config: AdminConfig, mut rx: Receiver<AdminMsg>) {
                         topic
                     }).collect();
 
-                    match &admin.create_topics(&topics, &admin_options).await {
+                    let _ = match &admin.create_topics(&topics, &admin_options).await {
                         Ok(results) => {
                             let mut topic_results: Vec<Result<String, (String, String)>> = Vec::new();
                             for result in results {
@@ -146,17 +143,22 @@ fn spawn_client(config: AdminConfig, mut rx: Receiver<AdminMsg>) {
                                     Err((topic, error)) => topic_results.push(Err((topic.to_string(), error.to_string()))),
                                 }
                             }
-
-                            env.send_and_clear(&pid, move |env| (ok(), topic_results).encode(env))
-                        }
-                        Err(err) => {
-                            env.send_and_clear(&pid, move |env| (error(), err.to_string()).encode(env))
-                        }
-                    }
+                            env.send_and_clear(&pid, move |env| {
+                                let results: Term = topic_results.iter().map(|r| match r {
+                                    Ok(topic) => (ok(), topic).encode(env),
+                                    Err((topic, err)) => (error(), (topic, err)).encode(env),
+                                }).collect::<Vec<_>>().encode(env);
+                                (ok(), results).encode(env)
+                            })
+                        },
+                        Err(err) => env.send_and_clear(&pid, move |env| {
+                            (error(), err.to_string()).encode(env)
+                        })
+                    };
                 }
                 Some(DeleteTopics(pid, topics)) => {
                     let topics: Vec<_> = topics.iter().map(|s| s.as_str()).collect();
-                    match &admin.delete_topics(&topics, &admin_options).await {
+                    let _ = match &admin.delete_topics(&topics, &admin_options).await {
                         Ok(results) => {
                             let mut topic_results: Vec<Result<String, (String, String)>> = Vec::new();
                             for result in results {
@@ -165,13 +167,18 @@ fn spawn_client(config: AdminConfig, mut rx: Receiver<AdminMsg>) {
                                     Err((topic, error)) => topic_results.push(Err((topic.to_string(), error.to_string()))),
                                 }
                             }
-
-                            env.send_and_clear(&pid, move |env| (ok(), topic_results).encode(env))
-                        }
-                        Err(err) => {
-                            env.send_and_clear(&pid, move |env| (error(), err.to_string()).encode(env))
-                        }
-                    }
+                            env.send_and_clear(&pid, move |env| {
+                                let results: Term = topic_results.iter().map(|r| match r {
+                                    Ok(topic) => (ok(), topic).encode(env),
+                                    Err((topic, err)) => (error(), (topic, err)).encode(env),
+                                }).collect::<Vec<_>>().encode(env);
+                                (ok(), results).encode(env)
+                            })
+                        },
+                        Err(err) => env.send_and_clear(&pid, move |env| {
+                            (error(), err.to_string()).encode(env)
+                        })
+                    };
                 }
                 //Some(DescribeTopic(pid, topic)) => {
                     //let specs = vec![ResourceSpecifier::Topic(&topic)];

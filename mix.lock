@@ -1,4 +1,5 @@
 %{
-  "rustler": {:git, "https://github.com/rusterlium/rustler.git", "19d94212f0596f74e14b3e3a17b84859f45a745b", [sparse: "rustler_mix", branch: "compiler_options"]},
-  "toml": {:hex, :toml, "0.5.2", "e471388a8726d1ce51a6b32f864b8228a1eb8edc907a0edf2bb50eab9321b526", [:mix], [], "hexpm"},
+  "jason": {:hex, :jason, "1.4.4", "b9226785a9aa77b6857ca22832cffa5d5011a667207eb2a0ad56adb5db443b8a", [:mix], [{:decimal, "~> 1.0 or ~> 2.0", [hex: :decimal, repo: "hexpm", optional: true]}], "hexpm", "c5eb0cab91f094599f94d55bc63409236a8ec69a21a67814529e8d5f6cc90b3b"},
+  "rustler": {:hex, :rustler, "0.36.1", "2d4b1ff57ea2789a44756a40dbb5fbb73c6ee0a13d031dcba96d0a5542598a6a", [:mix], [{:jason, "~> 1.0", [hex: :jason, repo: "hexpm", optional: false]}, {:toml, "~> 0.7", [hex: :toml, repo: "hexpm", optional: false]}], "hexpm", "f3fba4ad272970e0d1bc62972fc4a99809651e54a125c5242de9bad4574b2d02"},
+  "toml": {:hex, :toml, "0.7.0", "fbcd773caa937d0c7a02c301a1feea25612720ac3fa1ccb8bfd9d30d822911de", [:mix], [], "hexpm", "0690246a2478c1defd100b0c9b89b4ea280a22be9a7b313a8a058a2408a2fa70"},
 }

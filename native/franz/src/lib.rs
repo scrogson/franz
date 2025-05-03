@@ -1,4 +1,5 @@
 use rustler::{Env, Term};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod admin;
 mod atoms;
@@ -6,44 +7,15 @@ mod config;
 mod consumer;
 mod message;
 mod producer;
-mod task;
+mod runtime;
 
-fn load(env: Env, _: Term) -> bool {
-    env_logger::init();
-
-    admin::load(env);
-    consumer::load(env);
-    producer::load(env);
-
+fn load(env: Env, term: Term) -> bool {
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_env("FRANZ_LOG"))
+        .init();
+    runtime::load(env, term);
     true
 }
 
-rustler::init!(
-    "Elixir.Franz.Native",
-    [
-        // Admin API
-        admin::start,
-        admin::stop,
-        admin::create_topics,
-        admin::delete_topics,
-        //admin::create_partitions,
-        //admin::describe_configs,
-        //admin::alter_configs,
-        // Consumer API
-        consumer::start,
-        consumer::stop,
-        consumer::subscribe,
-        consumer::unsubscribe,
-        consumer::assignment,
-        consumer::poll,
-        consumer::commit,
-        consumer::committed,
-        //consumer::pause,
-        //consumer::resume,
-        // Producer API
-        producer::start,
-        producer::stop,
-        producer::deliver,
-    ],
-    load = load
-);
+rustler::init!("Elixir.Franz.Native", load = load);

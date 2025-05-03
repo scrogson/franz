@@ -1,15 +1,19 @@
 use crate::atoms::{ok, error};
 use crate::config::ProducerConfig;
 use crate::message::Message;
-use crate::task;
+use crate::runtime;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rustler::{Atom, Encoder, Env, OwnedEnv, Pid, ResourceArc};
+use rustler::{Atom, Encoder, Env, OwnedEnv, LocalPid, Resource, ResourceArc};
 use std::sync::Mutex;
+use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use log::{error, trace};
+use tracing::{error, trace};
 
 struct Ref(Mutex<Sender<Msg>>);
+
+#[rustler::resource_impl]
+impl Resource for Ref {}
 
 impl Ref {
     fn new(tx: Sender<Msg>) -> ResourceArc<Ref> {
@@ -18,13 +22,8 @@ impl Ref {
 }
 
 enum Msg {
-    Send(Pid, Message),
+    Send(LocalPid, Message),
     Stop,
-}
-
-pub fn load(env: Env) -> bool {
-    rustler::resource!(Ref, env);
-    true
 }
 
 #[rustler::nif(name = "producer_start")]
@@ -43,14 +42,15 @@ fn stop(resource: ResourceArc<Ref>) -> Atom {
 #[rustler::nif(name = "producer_send")]
 fn deliver(env: Env, resource: ResourceArc<Ref>, msg: Message) -> (Atom, ResourceArc<Ref>) {
     send(resource.clone(), Msg::Send(env.pid(), msg));
-    (ok(), resource)
+    (ok(), resource.clone())
 }
 
 fn send(resource: ResourceArc<Ref>, msg: Msg) {
+    trace!("Sending message to producer");
     let lock = resource.0.lock().expect("Failed to obtain a lock");
-    let mut sender = lock.clone();
+    let sender = lock.clone();
 
-    task::spawn(async move {
+    runtime::spawn(async move {
         match sender.send(msg).await {
             Ok(_) => (),
             Err(_err) => trace!("send error"),
@@ -59,7 +59,7 @@ fn send(resource: ResourceArc<Ref>, msg: Msg) {
 }
 
 fn spawn_producer(config: ProducerConfig, mut rx: Receiver<Msg>) {
-    task::spawn(async move {
+    runtime::spawn(async move {
         let mut env = OwnedEnv::new();
         let mut cfg = ClientConfig::new();
 
@@ -86,16 +86,16 @@ fn spawn_producer(config: ProducerConfig, mut rx: Receiver<Msg>) {
                         headers: None
                     };
 
-                    match &producer.send(record, 0).await {
+                    match &producer.send(record, Duration::from_secs(0)).await {
                         Ok(msg) => {
                             trace!("{:?}", msg);
-                            env.send_and_clear(&pid, move |env| {
+                            let _ = env.send_and_clear(&pid, move |env| {
                                 ok().encode(env)
                             });
                         }
                         Err(err) => {
                             error!("{:?}", err);
-                            env.send_and_clear(&pid, move |env| {
+                            let _ = env.send_and_clear(&pid, move |env| {
                                 (error(), format!("{:?}", err)).encode(env)
                             });
                         }

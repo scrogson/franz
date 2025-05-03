@@ -12,6 +12,7 @@ rustler::atoms! {
     stored,
     invalid,
     offset,
+    offset_tail,
     topic,
     partition,
     committed,

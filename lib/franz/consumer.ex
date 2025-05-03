@@ -77,46 +77,41 @@ defmodule Franz.Consumer do
   end
 
   @spec receive_assignments(Consumer.t()) :: {:ok, Consumer.t()} | {:error, error()}
-  def receive_assignments(%Consumer{ref: ref} = consumer) do
-    {:ok, ^ref} = Native.consumer_poll(ref)
-
+  def receive_assignments(%Consumer{} = consumer) do
     receive do
       {:pre_rebalance, _} ->
         receive_assignments(consumer)
 
       {:post_rebalance, {:assign, assignments}} ->
-        receive do
-          :poll_ready ->
-            {:ok, assignments}
-        end
+        {:ok, assignments, consumer}
     after
       100 ->
         receive_assignments(consumer)
     end
   end
 
-  @doc """
-  Poll for a message.
-  """
-  @spec poll(Consumer.t()) :: {:ok, Message.t()} | :none
-  def poll(%Consumer{ref: ref} = consumer, timeout \\ 100) do
-    {:ok, ^ref} = Native.consumer_poll(ref)
+  # @doc """
+  # Poll for a message.
+  # """
+  # @spec poll(Consumer.t()) :: {:ok, Message.t()} | :none
+  # def poll(%Consumer{ref: ref} = consumer, timeout \\ 100) do
+  #   {:ok, ^ref} = Native.consumer_poll(ref)
 
-    receive do
-      %Message{} = msg ->
-        msg
-    after
-      timeout ->
-        Logger.warn("Poll timeout after #{timeout}ms")
-        poll(consumer, timeout)
-    end
-  end
+  #   receive do
+  #     %Message{} = msg ->
+  #       msg
+  #   after
+  #     timeout ->
+  #       Logger.warning("Poll timeout after #{timeout}ms")
+  #       poll(consumer, timeout)
+  #   end
+  # end
 
   @doc """
   Commit a topic partition.
   """
   @spec commit(Consumer.t(), Message.t()) :: {:ok, Consumer.t()} | :none
-  def commit(%Consumer{ref: ref} = consumer, %Message{} = msg) do
+  def commit(%Consumer{ref: ref}, %Message{} = msg) do
     %Message{topic: topic, partition: partition, offset: offset} = msg
     {:ok, ^ref} = Native.consumer_commit(ref, {topic, partition, offset})
 
@@ -129,7 +124,7 @@ defmodule Franz.Consumer do
   Retrieve committed offsets for topics and partitions.
   """
   @spec committed(Consumer.t(), number()) :: {:ok, list()} | {:error, term()}
-  def committed(%Consumer{ref: ref} = consumer, timeout \\ 100) do
+  def committed(%Consumer{ref: ref}, timeout \\ 100) do
     {:ok, ^ref} = Native.consumer_committed(ref, timeout)
 
     receive do

@@ -20,7 +20,6 @@ defmodule Franz.Native do
   def consumer_subscribe(_ref, _topics), do: err()
   def consumer_unsubscribe(_ref), do: err()
   def consumer_assignment(_ref), do: err()
-  def consumer_poll(_ref), do: err()
   def consumer_commit(_ref, {_topic, _partition, _offset}), do: err()
   def consumer_committed(_ref, _timeout), do: err()
   def consumer_pause(_ref, _tpl), do: err()
@@ -32,5 +31,5 @@ defmodule Franz.Native do
   def producer_send(_ref, _message), do: err()
   def producer_stop(_ref), do: err()
 
-  defp err, do: :erlang.nif_error(:franz_nif_not_loaded)
+  defp err, do: :erlang.nif_error(:nif_not_loaded)
 end

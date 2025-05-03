@@ -5,7 +5,7 @@ defmodule Franz.ConsumerTest do
   alias Franz.{Consumer, Producer}
 
   setup do
-    brokers = "localhost:9094"
+    brokers = "127.0.0.1:9094"
     topic = Franz.Utils.random_bytes()
     num_partitions = 10
 
@@ -32,7 +32,11 @@ defmodule Franz.ConsumerTest do
         group_id: "test",
         auto_offset_reset: :earliest,
         bootstrap_servers: brokers,
-        enable_auto_commit: false
+        enable_auto_commit: false,
+        # Add additional configuration for better stability
+        socket_timeout_ms: 30000,
+        session_timeout_ms: 10000,
+        heartbeat_interval_ms: 3000
       )
 
     {:ok, consumer} = Consumer.start(config)
@@ -53,17 +57,19 @@ defmodule Franz.ConsumerTest do
           })
       end
 
+      Process.sleep(10_000)
+
       :ok = Producer.stop(producer)
     end)
 
-    {:ok, assignments} = Consumer.receive_assignments(consumer)
+    {:ok, assignments, consumer} = Consumer.receive_assignments(consumer)
 
     for [{^topic, partition, :invalid}, n] <- Enum.zip(assignments, 0..(num_partitions - 1)) do
       assert partition == n
     end
 
     for _ <- 0..99 do
-      case Consumer.poll(consumer) do
+      receive do
         %Franz.Message{} = msg ->
           :ok = Consumer.commit(consumer, msg)
       end
@@ -71,8 +77,12 @@ defmodule Franz.ConsumerTest do
 
     {:ok, committed} = Consumer.committed(consumer)
 
-    assert Enum.reduce(committed, 0, fn {_, _, {:offset, n}}, acc ->
-             acc + n + 1
+    assert Enum.reduce(committed, 0, fn
+             {_, _, {:offset, n}}, acc ->
+               acc + n + 1
+
+             {_, _, :invalid}, acc ->
+               acc
            end) == 100
 
     :ok = Consumer.stop(consumer)

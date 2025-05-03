@@ -3,8 +3,6 @@ defmodule Franz.Consumer.Config do
   Consumer configuration.
   """
 
-  alias Franz.Consumer.Config
-
   @type auto_offset_reset ::
           :smallest | :earliest | :beginning | :largest | :latest | :end | :error
   @type bootstrap_servers :: String.t()
@@ -18,7 +16,7 @@ defmodule Franz.Consumer.Config do
             group_id: nil,
             topics: []
 
-  @type t :: %Config{
+  @type t :: %__MODULE__{
           auto_offset_reset: auto_offset_reset(),
           bootstrap_servers: bootstrap_servers(),
           enable_auto_commit: boolean(),
@@ -29,6 +27,6 @@ defmodule Franz.Consumer.Config do
   def new(opts \\ []) do
     opts = Keyword.put_new(opts, :group_id, Franz.Utils.random_bytes())
 
-    struct(Config, opts)
+    struct(__MODULE__, opts)
   end
 end

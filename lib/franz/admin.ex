@@ -10,31 +10,31 @@ defmodule Franz.Admin do
           ref: reference()
         }
 
-  # @doc """
-  # Start a Kafka admin client with the provided configuration.
-  # """
-  # @spec start(Config.t()) :: {:ok, Admin.t()} | {:error, error()}
-  # def start(config) do
-  # case Native.admin_start(config) do
-  # {:ok, ref} ->
-  # {:ok, %Admin{ref: ref}}
+  @doc """
+  start a kafka admin client with the provided configuration.
+  """
+  @spec start(Config.t()) :: {:ok, Admin.t()} | {:error, error()}
+  def start(config) do
+    case Native.admin_start(config) do
+      {:ok, ref} ->
+        {:ok, %Admin{ref: ref}}
 
-  # {:error, error} ->
-  # {:error, error}
-  # end
-  # end
+      {:error, error} ->
+        {:error, error}
+    end
+  end
 
-  # @doc """
-  # Stop a Kafka client
-  # """
-  # @spec stop(Admin.t()) :: :ok | {:error, error()}
-  # def stop(%Admin{ref: ref}) do
-  # case Native.admin_stop(ref) do
-  # :ok ->
-  # :ok
+  @doc """
+  stop a kafka client
+  """
+  @spec stop(Admin.t()) :: :ok | {:error, error()}
+  def stop(%Admin{ref: ref}) do
+    case Native.admin_stop(ref) do
+      :ok ->
+        :ok
 
-  # {:error, error} ->
-  # {:error, error}
-  # end
-  # end
+      {:error, error} ->
+        {:error, error}
+    end
+  end
 end
