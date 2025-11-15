@@ -1,4 +1,4 @@
-use rdkafka::message::{BorrowedMessage, Message as _};
+use rdkafka::message::{BorrowedMessage, Headers, Message as _};
 use rustler::{Binary, Decoder, Encoder, Env, Error, NifStruct, OwnedBinary, Term};
 use std::io::Write as _;
 
@@ -16,6 +16,21 @@ pub struct Message {
 
 impl<'a> From<&BorrowedMessage<'a>> for Message {
     fn from(msg: &BorrowedMessage) -> Message {
+        let headers = msg
+            .headers()
+            .map(|h| {
+                h.iter()
+                    .filter_map(|header| {
+                        let key = header.key.to_owned();
+                        let value = header
+                            .value
+                            .and_then(|v| String::from_utf8(v.to_vec()).ok());
+                        value.map(|v| (key, v))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
         Message {
             payload: msg.payload().map(|p| Bin(p.to_vec())),
             key: msg.key().map(|k| Bin(k.to_vec())),
@@ -23,7 +38,7 @@ impl<'a> From<&BorrowedMessage<'a>> for Message {
             timestamp: msg.timestamp().to_millis(),
             partition: msg.partition(),
             offset: msg.offset(),
-            headers: vec![], // FIXME: copy out the headers for real
+            headers,
         }
     }
 }

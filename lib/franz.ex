@@ -1,10 +1,9 @@
 defmodule Franz do
-  alias Franz.{Admin, Native}
+  alias Franz.{Admin, Error, Native}
 
   @type bootstrap_servers :: String.t()
   @type topic :: String.t()
-  @type reason :: String.t()
-  @type topic_result :: {:ok, topic()} | {:error, topic(), reason()}
+  @type topic_result :: :ok | {:error, Error.t()}
 
   defmodule NewTopic do
     defstruct name: "",
@@ -27,10 +26,36 @@ defmodule Franz do
   """
   @spec create_topic(bootstrap_servers(), Franz.NewTopic.t()) :: topic_result()
   def create_topic(bootstrap_servers, %Franz.NewTopic{} = topic) do
-    case create_topics(bootstrap_servers, [topic]) do
-      [{:ok, _}] -> :ok
-      [{:error, {_, error}}] -> {:error, error}
+    start_time = System.monotonic_time()
+
+    result =
+      case create_topics(bootstrap_servers, [topic]) do
+        [{:ok, _}] -> :ok
+        [{:error, {_, error}}] -> Error.wrap({:error, error})
+      end
+
+    duration = System.monotonic_time() - start_time
+
+    metadata = %{
+      topic: topic.name,
+      num_partitions: topic.num_partitions,
+      replication: topic.replication,
+      bootstrap_servers: bootstrap_servers
+    }
+
+    case result do
+      :ok ->
+        :telemetry.execute([:franz, :admin, :create_topic], %{duration: duration}, metadata)
+
+      {:error, error} ->
+        :telemetry.execute(
+          [:franz, :admin, :create_topic, :error],
+          %{duration: duration},
+          Map.put(metadata, :error, error)
+        )
     end
+
+    result
   end
 
   @doc """
@@ -49,6 +74,9 @@ defmodule Franz do
     receive do
       {^task_ref, {:ok, results}} -> results
       {^task_ref, {:error, error}} -> {:error, error}
+    after
+      30_000 ->
+        {:error, :timeout}
     end
   end
 
@@ -57,10 +85,34 @@ defmodule Franz do
   """
   @spec delete_topic(bootstrap_servers(), topic()) :: topic_result()
   def delete_topic(bootstrap_servers, topic) when is_binary(topic) do
-    case delete_topics(bootstrap_servers, [topic]) do
-      [{:ok, _}] -> :ok
-      [{:error, {_, error}}] -> {:error, error}
+    start_time = System.monotonic_time()
+
+    result =
+      case delete_topics(bootstrap_servers, [topic]) do
+        [{:ok, _}] -> :ok
+        [{:error, {_, error}}] -> Error.wrap({:error, error})
+      end
+
+    duration = System.monotonic_time() - start_time
+
+    metadata = %{
+      topic: topic,
+      bootstrap_servers: bootstrap_servers
+    }
+
+    case result do
+      :ok ->
+        :telemetry.execute([:franz, :admin, :delete_topic], %{duration: duration}, metadata)
+
+      {:error, error} ->
+        :telemetry.execute(
+          [:franz, :admin, :delete_topic, :error],
+          %{duration: duration},
+          Map.put(metadata, :error, error)
+        )
     end
+
+    result
   end
 
   @doc """
@@ -79,6 +131,9 @@ defmodule Franz do
     receive do
       {^task_ref, {:ok, results}} -> results
       {^task_ref, {:error, error}} -> {:error, error}
+    after
+      30_000 ->
+        {:error, :timeout}
     end
   end
 end

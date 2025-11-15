@@ -1,5 +1,5 @@
 defmodule FranzTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   doctest Franz
 
   setup do
@@ -12,7 +12,7 @@ defmodule FranzTest do
     assert :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic})
 
     # Wait for the Broker to commit the new topic
-    Process.sleep(100)
+    Process.sleep(200)
 
     assert :ok = Franz.delete_topic(brokers, topic)
   end
@@ -28,7 +28,7 @@ defmodule FranzTest do
              ])
 
     # Wait for the Broker to commit the new topic
-    Process.sleep(100)
+    Process.sleep(200)
 
     assert [{:ok, ^topic_a}, {:ok, ^topic_b}] =
              Franz.delete_topics(brokers, [

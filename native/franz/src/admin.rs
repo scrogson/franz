@@ -1,8 +1,8 @@
 use crate::atoms::ok;
 use crate::config::AdminConfig;
+use rdkafka::admin::AdminClient;
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::admin::AdminClient;
 use rustler::{Atom, NifStruct, ResourceArc};
 use std::panic::AssertUnwindSafe;
 
@@ -28,7 +28,11 @@ impl rustler::Resource for AdminResource {}
 fn start(config: AdminConfig) -> Result<ResourceArc<AdminResource>, String> {
     let mut cfg = ClientConfig::new();
     cfg.set("bootstrap.servers", &config.bootstrap_servers);
-    cfg.set_log_level(RDKafkaLogLevel::Debug);
+    cfg.set_log_level(RDKafkaLogLevel::Warning);
+
+    if let Some(security) = &config.security {
+        security.apply_to_config(&mut cfg);
+    }
 
     let client: AdminClient<DefaultClientContext> = cfg
         .create()
