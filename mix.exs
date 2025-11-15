@@ -21,7 +21,8 @@ defmodule Franz.MixProject do
     [
       {:rustler,
        github: "rusterlium/rustler", branch: "async-nifs", sparse: "rustler_mix", runtime: false},
-      {:telemetry, "~> 1.0"}
+      {:telemetry, "~> 1.0"},
+      {:broadway, "~> 1.0", optional: true}
     ]
   end
 end
