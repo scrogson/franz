@@ -1,109 +1,80 @@
-use crate::atoms::{ok, error};
+use crate::atoms::ok;
 use crate::config::ProducerConfig;
 use crate::message::Message;
-use crate::runtime;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rustler::{Atom, Encoder, Env, OwnedEnv, LocalPid, Resource, ResourceArc};
-use std::sync::Mutex;
+use rustler::{Atom, ResourceArc};
+use std::panic::AssertUnwindSafe;
 use std::time::Duration;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tracing::{error, trace};
 
-struct Ref(Mutex<Sender<Msg>>);
+struct ProducerResource {
+    producer: AssertUnwindSafe<FutureProducer>,
+}
 
 #[rustler::resource_impl]
-impl Resource for Ref {}
+impl rustler::Resource for ProducerResource {}
 
-impl Ref {
-    fn new(tx: Sender<Msg>) -> ResourceArc<Ref> {
-        ResourceArc::new(Ref(Mutex::new(tx)))
+#[rustler::nif(name = "producer_start")]
+fn start(config: ProducerConfig) -> Result<ResourceArc<ProducerResource>, String> {
+    let mut cfg = ClientConfig::new();
+    cfg.set("bootstrap.servers", &config.bootstrap_servers);
+    cfg.set_log_level(RDKafkaLogLevel::Debug);
+
+    let producer: FutureProducer = cfg
+        .create()
+        .map_err(|e| format!("Failed to create Kafka producer: {}", e))?;
+
+    Ok(ResourceArc::new(ProducerResource {
+        producer: AssertUnwindSafe(producer),
+    }))
+}
+
+#[rustler::task]
+async fn producer_send(
+    producer_resource: ResourceArc<ProducerResource>,
+    msg: Message,
+) -> Result<(), String> {
+    let topic = &msg.topic;
+    let partition = Some(msg.partition);
+    let key = msg.key.map(|k| k.0);
+    let payload = msg.payload.map(|p| p.0);
+    let timestamp = msg.timestamp;
+
+    let record = FutureRecord {
+        topic,
+        partition,
+        key: key.as_ref(),
+        payload: payload.as_ref(),
+        timestamp,
+        headers: None,
+    };
+
+    trace!("Sending message to topic={}, partition={:?}", topic, partition);
+
+    match producer_resource
+        .producer
+        .0
+        .send(record, Duration::from_secs(5))
+        .await
+    {
+        Ok(delivery) => {
+            trace!(
+                "Message sent successfully: partition={}, offset={}",
+                delivery.partition,
+                delivery.offset
+            );
+            Ok(())
+        }
+        Err((err, _)) => {
+            error!("Failed to send message: {:?}", err);
+            Err(format!("{:?}", err))
+        }
     }
 }
 
-enum Msg {
-    Send(LocalPid, Message),
-    Stop,
-}
-
-#[rustler::nif(name = "producer_start")]
-fn start(config: ProducerConfig) -> (Atom, ResourceArc<Ref>) {
-    let (tx, rx) = channel::<Msg>(1000);
-    spawn_producer(config, rx);
-    (ok(), Ref::new(tx))
-}
-
 #[rustler::nif(name = "producer_stop")]
-fn stop(resource: ResourceArc<Ref>) -> Atom {
-    send(resource, Msg::Stop);
+fn stop(_resource: ResourceArc<ProducerResource>) -> Atom {
+    // The producer will be dropped when the resource is garbage collected
     ok()
-}
-
-#[rustler::nif(name = "producer_send")]
-fn deliver(env: Env, resource: ResourceArc<Ref>, msg: Message) -> (Atom, ResourceArc<Ref>) {
-    send(resource.clone(), Msg::Send(env.pid(), msg));
-    (ok(), resource.clone())
-}
-
-fn send(resource: ResourceArc<Ref>, msg: Msg) {
-    trace!("Sending message to producer");
-    let lock = resource.0.lock().expect("Failed to obtain a lock");
-    let sender = lock.clone();
-
-    runtime::spawn(async move {
-        match sender.send(msg).await {
-            Ok(_) => (),
-            Err(_err) => trace!("send error"),
-        }
-    });
-}
-
-fn spawn_producer(config: ProducerConfig, mut rx: Receiver<Msg>) {
-    runtime::spawn(async move {
-        let mut env = OwnedEnv::new();
-        let mut cfg = ClientConfig::new();
-
-        cfg.set("bootstrap.servers", &config.bootstrap_servers);
-        cfg.set_log_level(RDKafkaLogLevel::Debug);
-
-        let producer: FutureProducer = cfg.create().expect("Failed to create Kafka producer");
-
-        loop {
-            match rx.recv().await {
-                Some(Msg::Send(pid, msg)) => {
-                    let topic = &msg.topic;
-                    let partition = Some(msg.partition.clone());
-                    let key = msg.key.map(|k| k.0);
-                    let payload = msg.payload.map(|p| p.0);
-                    let timestamp = msg.timestamp;
-
-                    let record = FutureRecord {
-                        topic,
-                        partition,
-                        key: key.as_ref(),
-                        payload: payload.as_ref(),
-                        timestamp,
-                        headers: None
-                    };
-
-                    match &producer.send(record, Duration::from_secs(0)).await {
-                        Ok(msg) => {
-                            trace!("{:?}", msg);
-                            let _ = env.send_and_clear(&pid, move |env| {
-                                ok().encode(env)
-                            });
-                        }
-                        Err(err) => {
-                            error!("{:?}", err);
-                            let _ = env.send_and_clear(&pid, move |env| {
-                                (error(), format!("{:?}", err)).encode(env)
-                            });
-                        }
-                    }
-                }
-                Some(Msg::Stop) => break,
-                None => continue,
-            }
-        }
-    });
 }

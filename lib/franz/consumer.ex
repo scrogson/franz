@@ -1,5 +1,5 @@
 defmodule Franz.Consumer do
-  defstruct ref: nil
+  defstruct ref: nil, channel: nil
 
   alias Franz.{Consumer, Message, Native}
   alias Consumer.Config
@@ -8,7 +8,8 @@ defmodule Franz.Consumer do
   @type error :: any()
 
   @type t :: %Consumer{
-          ref: reference()
+          ref: reference(),
+          channel: reference()
         }
 
   @doc """
@@ -16,47 +17,44 @@ defmodule Franz.Consumer do
   """
   @spec start(Config.t()) :: {:ok, Consumer.t()} | {:error, error()}
   def start(config) do
-    case Native.consumer_start(config) do
-      {:ok, ref} ->
-        {:ok, %Consumer{ref: ref}}
-
-      {:error, _} = error ->
-        error
-    end
+    # Start the streaming task - it returns a channel sender reference
+    channel_sender = Native.consumer_stream(config)
+    {:ok, %Consumer{ref: channel_sender, channel: channel_sender}}
   end
 
   @doc """
   Subscribe to a list of topics.
   """
   @spec subscribe(Consumer.t(), [String.t()]) :: {:ok, Consumer.t()} | {:error, error()}
-  def subscribe(%Consumer{ref: ref}, topics) when is_list(topics) do
-    {:ok, ^ref} = Native.consumer_subscribe(ref, topics)
+  def subscribe(%Consumer{channel: channel} = consumer, topics) when is_list(topics) do
+    :ok = Native.consumer_subscribe(channel, topics)
 
+    # Wait for response from the streaming task - messages are tagged with channel ref
     receive do
-      :ok ->
-        {:ok, %Consumer{ref: ref}}
+      {^channel, :ok} ->
+        {:ok, consumer}
 
-      {:error, reason} ->
+      {^channel, {:error, %{reason: reason}}} ->
         {:error, reason}
     end
   end
 
   @doc """
-  Subscribe to a list of topics.
+  Get current partition assignments.
   """
   @spec assignment(Consumer.t()) :: {:ok, list()} | {:error, error()}
-  def assignment(%Consumer{ref: ref}) do
-    {:ok, ^ref} = Native.consumer_assignment(ref)
+  def assignment(%Consumer{channel: channel}) do
+    :ok = Native.consumer_assignment(channel)
 
     receive do
-      {:assignments, assignments} ->
+      {^channel, {:assignments, %{assignments: assignments}}} ->
         {:ok, assignments}
 
-      {:error, reason} ->
+      {^channel, {:error, %{reason: reason}}} ->
         {:error, reason}
 
       other ->
-        other
+        {:error, {:unexpected_message, other}}
     end
   end
 
@@ -64,25 +62,25 @@ defmodule Franz.Consumer do
   Unsubscribe from the current subscribed topics.
   """
   @spec unsubscribe(Consumer.t()) :: {:ok, Consumer.t()} | {:error, error()}
-  def unsubscribe(%Consumer{ref: ref}) do
-    {:ok, ^ref} = Native.consumer_unsubscribe(ref)
+  def unsubscribe(%Consumer{channel: channel} = consumer) do
+    :ok = Native.consumer_unsubscribe(channel)
 
     receive do
-      :ok ->
-        {:ok, %Consumer{ref: ref}}
+      {^channel, :ok} ->
+        {:ok, consumer}
 
-      {:error, reason} ->
+      {^channel, {:error, %{reason: reason}}} ->
         {:error, reason}
     end
   end
 
-  @spec receive_assignments(Consumer.t()) :: {:ok, Consumer.t()} | {:error, error()}
-  def receive_assignments(%Consumer{} = consumer) do
+  @spec receive_assignments(Consumer.t()) :: {:ok, list(), Consumer.t()} | {:error, error()}
+  def receive_assignments(%Consumer{channel: channel} = consumer) do
     receive do
-      {:pre_rebalance, _} ->
+      {^channel, {:pre_rebalance, _}} ->
         receive_assignments(consumer)
 
-      {:post_rebalance, {:assign, assignments}} ->
+      {^channel, {:post_rebalance, %{action: {:assign, %{partitions: assignments}}}}} ->
         {:ok, assignments, consumer}
     after
       100 ->
@@ -90,33 +88,17 @@ defmodule Franz.Consumer do
     end
   end
 
-  # @doc """
-  # Poll for a message.
-  # """
-  # @spec poll(Consumer.t()) :: {:ok, Message.t()} | :none
-  # def poll(%Consumer{ref: ref} = consumer, timeout \\ 100) do
-  #   {:ok, ^ref} = Native.consumer_poll(ref)
-
-  #   receive do
-  #     %Message{} = msg ->
-  #       msg
-  #   after
-  #     timeout ->
-  #       Logger.warning("Poll timeout after #{timeout}ms")
-  #       poll(consumer, timeout)
-  #   end
-  # end
-
   @doc """
-  Commit a topic partition.
+  Commit a topic partition offset.
   """
-  @spec commit(Consumer.t(), Message.t()) :: {:ok, Consumer.t()} | :none
-  def commit(%Consumer{ref: ref}, %Message{} = msg) do
+  @spec commit(Consumer.t(), Message.t()) :: :ok | {:error, error()}
+  def commit(%Consumer{channel: channel}, %Message{} = msg) do
     %Message{topic: topic, partition: partition, offset: offset} = msg
-    {:ok, ^ref} = Native.consumer_commit(ref, {topic, partition, offset})
+    :ok = Native.consumer_commit(channel, {topic, partition, offset})
 
     receive do
-      {:ok, :committed} -> :ok
+      {^channel, :ok} -> :ok
+      {^channel, {:error, %{reason: reason}}} -> {:error, reason}
     end
   end
 
@@ -124,43 +106,49 @@ defmodule Franz.Consumer do
   Retrieve committed offsets for topics and partitions.
   """
   @spec committed(Consumer.t(), number()) :: {:ok, list()} | {:error, term()}
-  def committed(%Consumer{ref: ref}, timeout \\ 100) do
-    {:ok, ^ref} = Native.consumer_committed(ref, timeout)
+  def committed(%Consumer{channel: channel}, timeout \\ 100) do
+    :ok = Native.consumer_committed(channel, timeout)
 
     receive do
-      {:ok, tpl} ->
-        # Enum.reduce(tpl, %{}, )
-        {:ok, tpl}
+      {^channel, {:committed, %{offsets: offsets}}} ->
+        {:ok, offsets}
+
+      {^channel, {:error, %{reason: reason}}} ->
+        {:error, reason}
     end
   end
 
   @doc """
-  Pause a given topic partition.
-  """
-  # @spec pause(Consumer.t(), TopicPartion.t())
-  def pause(%Consumer{ref: ref}, tpl) do
-    Native.consumer_pause(ref, tpl)
-  end
-
-  @doc """
-  Resume a given topic partition.
-  """
-  # @spec resume(Consumer.t(), TopicPartion.t())
-  def resume(%Consumer{ref: ref}, tpl) do
-    Native.consumer_resume(ref, tpl)
-  end
-
-  @doc """
-  Stop a Kafka client
+  Stop a Kafka consumer.
+  The task will automatically stop when the channel is dropped or the process exits.
   """
   @spec stop(Consumer.t()) :: :ok | {:error, error()}
-  def stop(%Consumer{ref: ref}) do
-    case Native.consumer_stop(ref) do
-      :ok ->
-        :ok
+  def stop(%Consumer{}) do
+    # With the task-based approach, the consumer task will automatically stop
+    # when the channel is dropped or the process exits
+    :ok
+  end
 
-      {:error, error} ->
-        {:error, error}
+  @doc """
+  Handle incoming messages from the consumer.
+  This is a helper to pattern match on different event types.
+  """
+  def handle_event(event) do
+    case event do
+      {:message, %{msg: msg}} ->
+        {:message, msg}
+
+      {:pre_rebalance, %{action: action}} ->
+        {:pre_rebalance, action}
+
+      {:post_rebalance, %{action: action}} ->
+        {:post_rebalance, action}
+
+      {:error, %{reason: reason}} ->
+        {:error, reason}
+
+      other ->
+        {:unknown, other}
     end
   end
 end

@@ -19,7 +19,7 @@ defmodule Franz.MixProject do
 
   defp deps do
     [
-      {:rustler, "~> 0.36", runtime: false}
+      {:rustler, github: "rusterlium/rustler", branch: "async-nifs", sparse: "rustler_mix", runtime: false}
     ]
   end
 end

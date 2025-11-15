@@ -15,7 +15,7 @@ services:
       - --kafka-addr
       - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:9094
       - --advertise-kafka-addr
-      - PLAINTEXT://redpanda:9092,OUTSIDE://localhost:9094
+      - PLAINTEXT://redpanda:9092,OUTSIDE://127.0.0.1:9094
     ports:
       - "127.0.0.1:9094:9094"
       - "127.0.0.1:9092:9092"

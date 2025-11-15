@@ -1,16 +1,17 @@
-use crate::atoms::{self, ok, error};
+use crate::atoms::{self, ok};
 use crate::config::ConsumerConfig;
 use crate::message::Message;
-use crate::runtime;
 use futures::StreamExt;
 use rdkafka::{ClientContext, ClientConfig, TopicPartitionList};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, StreamConsumer, Consumer, CommitMode, Rebalance};
-use rustler::{Atom, Encoder, Env, NifTuple, OwnedEnv, LocalPid, Resource, ResourceArc, Term};
-use std::sync::{Mutex, Arc};
+use rdkafka::Message as _;
+use rustler::{Atom, Decoder, Encoder, Env, Error, LocalPid, NifTuple, OwnedEnv, Resource, ResourceArc, Term};
+use rustler::runtime::Channel;
+use std::panic::AssertUnwindSafe;
 use std::time::Duration;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tracing::trace;
 
+#[derive(Clone, Copy, Debug)]
 pub enum Offset {
     Beginning,
     End,
@@ -46,27 +47,64 @@ impl<'a> Encoder for Offset {
     }
 }
 
-#[derive(NifTuple)]
-struct TopicPartitonOffset(String, i32, i64);
+impl<'a> Decoder<'a> for Offset {
+    fn decode(term: Term<'a>) -> Result<Self, Error> {
+        // Try to decode as an atom first
+        if let Ok(atom) = term.decode::<Atom>() {
+            if atom == atoms::beginning() {
+                return Ok(Offset::Beginning);
+            } else if atom == atoms::end() {
+                return Ok(Offset::End);
+            } else if atom == atoms::stored() {
+                return Ok(Offset::Stored);
+            } else if atom == atoms::invalid() {
+                return Ok(Offset::Invalid);
+            }
+        }
 
-enum Msg {
-    Assignment(LocalPid),
-    Commit(LocalPid, TopicPartitonOffset),
-    Committed(LocalPid, u64),
-    Stop,
-    Subscribe(LocalPid, Vec<String>),
-    Unsubscribe(LocalPid),
+        // Try to decode as a tuple (atom, i64)
+        if let Ok((atom, n)) = term.decode::<(Atom, i64)>() {
+            if atom == atoms::offset() {
+                return Ok(Offset::Offset(n));
+            } else if atom == atoms::offset_tail() {
+                return Ok(Offset::OffsetTail(n));
+            }
+        }
+
+        Err(Error::BadArg)
+    }
 }
 
-struct Ref(Mutex<Sender<Msg>>);
+#[derive(NifTuple)]
+struct TopicPartitionOffset(String, i32, i64);
 
-#[rustler::resource_impl]
-impl Resource for Ref {}
+// Commands sent from Elixir to the consumer
+#[derive(Debug, rustler::NifTaggedEnum)]
+enum ConsumerCommand {
+    Subscribe { topics: Vec<String> },
+    Unsubscribe,
+    Assignment,
+    Commit { topic: String, partition: i32, offset: i64 },
+    Committed { timeout: u64 },
+}
 
-impl Ref {
-    fn new(tx: Sender<Msg>) -> ResourceArc<Ref> {
-        ResourceArc::new(Ref(Mutex::new(tx)))
-    }
+// Events sent from consumer to Elixir
+#[derive(Debug, rustler::NifTaggedEnum)]
+enum ConsumerEvent {
+    Message { msg: Message },
+    PreRebalance { action: RebalanceAction },
+    PostRebalance { action: RebalanceAction },
+    Assignments { assignments: Vec<(String, i32, Offset)> },
+    Committed { offsets: Vec<(String, i32, Offset)> },
+    Error { reason: String },
+    Ok,
+}
+
+#[derive(Clone, Debug, rustler::NifTaggedEnum)]
+enum RebalanceAction {
+    Assign { partitions: Vec<(String, i32, Offset)> },
+    Revoke { partitions: Vec<(String, i32)> },
+    Error { reason: String },
 }
 
 struct Context {
@@ -108,194 +146,295 @@ impl ConsumerContext for Context {
     fn post_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance) {
         self.handle_rebalance(atoms::post_rebalance(), &rebalance);
     }
-
-    //fn commit_callback(
-        //&self,
-        //_result: rdkafka::error::KafkaResult<()>,
-        //offsets: &TopicPartitionList,
-    //) {
-        //info!("Committing offsets: {:?}", offsets);
-    //}
 }
+
+// Rebalance event type for sending through mpsc channel
+#[derive(Clone, Debug)]
+enum RebalanceEvent {
+    PreRebalance(RebalanceAction),
+    PostRebalance(RebalanceAction),
+}
+
+// Context for consumer_stream task that sends rebalance events through mpsc channel
+struct RebalanceContext {
+    rebalance_tx: tokio::sync::mpsc::UnboundedSender<RebalanceEvent>,
+}
+
+impl RebalanceContext {
+    fn handle_rebalance(&self, event_type: fn(RebalanceAction) -> RebalanceEvent, rebalance: &Rebalance) {
+        let action = match rebalance {
+            Rebalance::Assign(tpl) => {
+                let partitions: Vec<_> = tpl.elements().iter().map(|e| {
+                    (e.topic().to_string(), e.partition(), Offset::from(&e.offset()))
+                }).collect();
+                RebalanceAction::Assign { partitions }
+            }
+            Rebalance::Error(error) => {
+                RebalanceAction::Error { reason: error.to_string() }
+            }
+            Rebalance::Revoke(tpl) => {
+                let partitions: Vec<_> = tpl.elements().iter().map(|e| {
+                    (e.topic().to_string(), e.partition())
+                }).collect();
+                RebalanceAction::Revoke { partitions }
+            }
+        };
+        let _ = self.rebalance_tx.send(event_type(action));
+    }
+}
+
+impl ClientContext for RebalanceContext {}
+
+impl ConsumerContext for RebalanceContext {
+    fn pre_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance) {
+        self.handle_rebalance(RebalanceEvent::PreRebalance, rebalance);
+    }
+
+    fn post_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance) {
+        self.handle_rebalance(RebalanceEvent::PostRebalance, rebalance);
+    }
+}
+
+struct ConsumerResource {
+    consumer: AssertUnwindSafe<StreamConsumer<Context>>,
+}
+
+#[rustler::resource_impl]
+impl Resource for ConsumerResource {}
 
 #[rustler::nif(name = "consumer_start")]
-fn start(env: Env, config: ConsumerConfig) -> (Atom, ResourceArc<Ref>) {
-    let (tx, rx) = channel::<Msg>(1000);
-    spawn_consumer(env.pid(), config, rx);
+fn start(env: Env, config: ConsumerConfig) -> Result<ResourceArc<ConsumerResource>, String> {
+    let cfg: ClientConfig = config.into();
+    let consumer: StreamConsumer<Context> = cfg
+        .create_with_context(Context { owner: env.pid() })
+        .map_err(|e| format!("Failed to create Kafka consumer: {}", e))?;
 
-    (ok(), Ref::new(tx))
+    Ok(ResourceArc::new(ConsumerResource {
+        consumer: AssertUnwindSafe(consumer),
+    }))
 }
 
-#[rustler::nif(name = "consumer_stop")]
-fn stop(resource: ResourceArc<Ref>) -> Atom {
-    send(resource, Msg::Stop);
+// Main consumer loop using Channel for bidirectional communication
+// The Channel parameter is automatically created by the task macro, not passed from Elixir!
+// Channel must be the FIRST parameter, then regular parameters
+#[rustler::task]
+async fn consumer_stream(channel: Channel<ConsumerCommand, ConsumerEvent>, config: ConsumerConfig) -> Result<(), String> {
+    // Create an mpsc channel for rebalance events
+    let (rebalance_tx, mut rebalance_rx) = tokio::sync::mpsc::unbounded_channel();
 
-    ok()
+    // Create context with rebalance sender
+    let context = RebalanceContext {
+        rebalance_tx,
+    };
+
+    // Create the consumer with context for rebalance callbacks
+    let cfg: ClientConfig = config.into();
+    let consumer: StreamConsumer<RebalanceContext> = cfg
+        .create_with_context(context)
+        .map_err(|e| format!("Failed to create Kafka consumer: {}", e))?;
+
+    let mut channel = channel;
+    let mut stream = consumer.stream();
+
+    loop {
+        tokio::select! {
+            // Handle incoming messages from Kafka
+            Some(msg_result) = stream.next() => {
+                match msg_result {
+                    Ok(msg) => {
+                        trace!("Received message from Kafka: topic={}, partition={}, offset={}",
+                               msg.topic(), msg.partition(), msg.offset());
+                        channel.send(ConsumerEvent::Message {
+                            msg: Message::from(&msg),
+                        });
+                    }
+                    Err(err) => {
+                        trace!("Error receiving message from Kafka: {:?}", err);
+                        channel.send(ConsumerEvent::Error {
+                            reason: err.to_string(),
+                        });
+                    }
+                }
+            }
+
+            // Handle rebalance events
+            Some(rebalance_event) = rebalance_rx.recv() => {
+                trace!("Received rebalance event: {:?}", rebalance_event);
+                match rebalance_event {
+                    RebalanceEvent::PreRebalance(action) => {
+                        channel.send(ConsumerEvent::PreRebalance { action });
+                    }
+                    RebalanceEvent::PostRebalance(action) => {
+                        channel.send(ConsumerEvent::PostRebalance { action });
+                    }
+                }
+            }
+
+            // Handle commands from Elixir
+            Some(cmd) = channel.next() => {
+                trace!("Received command from Elixir: {:?}", cmd);
+                match cmd {
+                    ConsumerCommand::Subscribe { topics } => {
+                        if topics.is_empty() {
+                            channel.send(ConsumerEvent::Error {
+                                reason: "Empty topics".to_string(),
+                            });
+                        } else {
+                            let topics: Vec<_> = topics.iter().map(|s| s.as_str()).collect();
+                            trace!("Subscribing to topics={:?}", &topics);
+
+                            match consumer.subscribe(&topics) {
+                                Ok(_) => channel.send(ConsumerEvent::Ok),
+                                Err(e) => channel.send(ConsumerEvent::Error {
+                                    reason: e.to_string(),
+                                }),
+                            }
+                        }
+                    }
+
+                    ConsumerCommand::Unsubscribe => {
+                        consumer.unsubscribe();
+                        channel.send(ConsumerEvent::Ok);
+                    }
+
+                    ConsumerCommand::Assignment => {
+                        trace!("Fetching assignments");
+                        match consumer.subscription() {
+                            Ok(tpl) => {
+                                let assignments: Vec<_> = tpl
+                                    .elements()
+                                    .iter()
+                                    .map(|e| (e.topic().to_string(), e.partition(), Offset::from(&e.offset())))
+                                    .collect();
+                                channel.send(ConsumerEvent::Assignments { assignments });
+                            }
+                            Err(err) => {
+                                channel.send(ConsumerEvent::Error {
+                                    reason: err.to_string(),
+                                });
+                            }
+                        }
+                    }
+
+                    ConsumerCommand::Commit { topic, partition, offset } => {
+                        let mut tpl = TopicPartitionList::new();
+                        let _ = tpl.add_partition_offset(&topic, partition, rdkafka::Offset::Offset(offset));
+
+                        trace!("Committing topic={}, partition={}, offset={}", &topic, &partition, &offset);
+
+                        match consumer.commit(&tpl, CommitMode::Sync) {
+                            Ok(()) => channel.send(ConsumerEvent::Ok),
+                            Err(err) => {
+                                channel.send(ConsumerEvent::Error {
+                                    reason: err.to_string(),
+                                });
+                            }
+                        }
+                    }
+
+                    ConsumerCommand::Committed { timeout } => {
+                        trace!("Fetching committed");
+                        match consumer.committed(Duration::from_millis(timeout)) {
+                            Ok(tpl) => {
+                                let offsets: Vec<_> = tpl
+                                    .elements()
+                                    .iter()
+                                    .map(|e| (e.topic().to_string(), e.partition(), Offset::from(&e.offset())))
+                                    .collect();
+                                channel.send(ConsumerEvent::Committed { offsets });
+                            }
+                            Err(err) => {
+                                channel.send(ConsumerEvent::Error {
+                                    reason: err.to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            else => {
+                // Both streams ended, exit loop
+                break;
+            }
+        }
+    }
+
+    // Final message when task completes
+    Ok(())
 }
 
 #[rustler::nif(name = "consumer_subscribe")]
 fn subscribe(
     env: Env,
-    resource: ResourceArc<Ref>,
-    topics: Vec<String>
-) -> (Atom, ResourceArc<Ref>) {
-    send(resource.clone(), Msg::Subscribe(env.pid(), topics));
-
-    (ok(), resource)
+    sender: rustler::runtime::ChannelSender<ConsumerCommand>,
+    topics: Vec<String>,
+) -> rustler::NifResult<Atom> {
+    rustler::runtime::channel::send(
+        env,
+        sender,
+        ConsumerCommand::Subscribe { topics }.encode(env),
+    )
 }
 
 #[rustler::nif(name = "consumer_unsubscribe")]
-fn unsubscribe(env: Env, resource: ResourceArc<Ref>) -> (Atom, ResourceArc<Ref>) {
-    send(resource.clone(), Msg::Unsubscribe(env.pid()));
-
-    (ok(), resource)
+fn unsubscribe(
+    env: Env,
+    sender: rustler::runtime::ChannelSender<ConsumerCommand>,
+) -> rustler::NifResult<Atom> {
+    rustler::runtime::channel::send(
+        env,
+        sender,
+        ConsumerCommand::Unsubscribe.encode(env),
+    )
 }
 
 #[rustler::nif(name = "consumer_assignment")]
-fn assignment(env: Env, resource: ResourceArc<Ref>) -> (Atom, ResourceArc<Ref>) {
-    send(resource.clone(), Msg::Assignment(env.pid()));
-
-    (ok(), resource)
+fn assignment(
+    env: Env,
+    sender: rustler::runtime::ChannelSender<ConsumerCommand>,
+) -> rustler::NifResult<Atom> {
+    rustler::runtime::channel::send(
+        env,
+        sender,
+        ConsumerCommand::Assignment.encode(env),
+    )
 }
 
-// #[rustler::nif(name = "consumer_poll")]
-// fn poll(env: Env, resource: ResourceArc<Ref>) -> (Atom, ResourceArc<Ref>) {
-//     send(resource.clone(), Msg::Poll(env.pid()));
-
-//     (ok(), resource)
-// }
-
 #[rustler::nif(name = "consumer_commit")]
-fn commit(env: Env, resource: ResourceArc<Ref>, tpo: TopicPartitonOffset) -> (Atom, ResourceArc<Ref>) {
-    send(resource.clone(), Msg::Commit(env.pid(), tpo));
-
-    (ok(), resource)
+fn commit(
+    env: Env,
+    sender: rustler::runtime::ChannelSender<ConsumerCommand>,
+    tpo: TopicPartitionOffset,
+) -> rustler::NifResult<Atom> {
+    let TopicPartitionOffset(topic, partition, offset) = tpo;
+    rustler::runtime::channel::send(
+        env,
+        sender,
+        ConsumerCommand::Commit {
+            topic,
+            partition,
+            offset,
+        }
+        .encode(env),
+    )
 }
 
 #[rustler::nif(name = "consumer_committed")]
-fn committed(env: Env, resource: ResourceArc<Ref>, timeout: u64) -> (Atom, ResourceArc<Ref>) {
-    send(resource.clone(), Msg::Committed(env.pid(), timeout));
-
-    (ok(), resource)
+fn committed(
+    env: Env,
+    sender: rustler::runtime::ChannelSender<ConsumerCommand>,
+    timeout: u64,
+) -> rustler::NifResult<Atom> {
+    rustler::runtime::channel::send(
+        env,
+        sender,
+        ConsumerCommand::Committed { timeout }.encode(env),
+    )
 }
 
-fn send(resource: ResourceArc<Ref>, msg: Msg) {
-    let lock = resource.0.lock().expect("Failed to obtain a lock");
-    let sender = lock.clone();
-
-    runtime::spawn(async move {
-        match sender.send(msg).await {
-            Ok(_) => (),
-            Err(_err) => trace!("send error"),
-        }
-    });
-}
-
-fn spawn_consumer(owner: LocalPid, config: ConsumerConfig, rx: Receiver<Msg>) {
-    // Create consumer inside the Tokio runtime context
-    runtime::spawn(async move {
-        let cfg: ClientConfig = config.into();
-        let consumer: StreamConsumer<Context> = cfg
-            .create_with_context(Context { owner: owner.clone() })
-            .expect("Failed to create Kafka consumer");
-        let consumer = Arc::new(consumer);
-
-        // drive the message stream
-        {
-            let consumer = consumer.clone();
-            let owner = owner.clone();
-            runtime::spawn(async move {
-                let mut env = OwnedEnv::new();
-                let mut stream = consumer.stream();
-                while let Some(item) = stream.next().await {
-                    let _ = match item {
-                        Ok(msg) => env.send_and_clear(&owner, move |env| Message::from(&msg).encode(env)),
-                        Err(err) => env.send_and_clear(&owner, move |env| (error(), err.to_string()).encode(env)),
-                    };
-                }
-            });
-        }
-
-        // handle control commands
-        {
-            let consumer = consumer.clone();
-            let mut rx = rx;
-            runtime::spawn(async move {
-                let mut env = OwnedEnv::new();
-
-                while let Some(cmd) = rx.recv().await {
-                    match cmd {
-                        Msg::Assignment(pid) => {
-                            trace!("Fetching assignments");
-                            let _ = match consumer.subscription() {
-                                Ok(tpl) => {
-                                    trace!("{:?}", &tpl);
-                                    env.send_and_clear(&pid, move |env| {
-                                        let assignments: Term = tpl.elements().iter().map(|e| {
-                                            (e.topic(), e.partition(), Offset::from(&e.offset()))
-                                        }).collect::<Vec<_>>().encode(env);
-                                        (atoms::assignments(), assignments).encode(env)
-                                    })
-                                },
-                                Err(err) => env.send_and_clear(&pid, move |env| {
-                                    (error(), err.to_string()).encode(env)
-                                })
-                            };
-                        }
-
-                        Msg::Commit(pid, TopicPartitonOffset(topic, partition, offset)) => {
-                            let mut tpl = TopicPartitionList::new();
-                            let _ = tpl.add_partition_offset(&topic, partition, rdkafka::Offset::Offset(offset));
-
-                            trace!("Committing topic={}, partition={}, offset={}", &topic, &partition, &offset);
-
-                            let _ = match consumer.commit(&tpl, CommitMode::Sync) {
-                                Ok(()) => env.send_and_clear(&pid, move |env| {
-                                    (ok(), atoms::committed()).encode(env)
-                                }),
-                                Err(err) => env.send_and_clear(&pid, move |env| {
-                                    (error(), err.to_string()).encode(env)
-                                })
-                            };
-                        }
-
-                        Msg::Committed(pid, timeout) => {
-                            trace!("Fetching committed");
-                            let _ = match consumer.committed(Duration::from_millis(timeout)) {
-                                Ok(tpl) => {
-                                    env.send_and_clear(&pid, move |env| {
-                                        let assignments: Term = tpl.elements().iter().map(|e| {
-                                            (e.topic(), e.partition(), Offset::from(&e.offset()))
-                                        }).collect::<Vec<_>>().encode(env);
-                                        (ok(), assignments).encode(env)
-                                    })
-                                },
-                                Err(err) => env.send_and_clear(&pid, move |env| {
-                                    (error(), err.to_string()).encode(env)
-                                })
-                            };
-                        }
-
-                        Msg::Subscribe(pid, topics) => {
-                            if topics.is_empty() {
-                                let _ = env.send_and_clear(&pid, move |env| (error(), "Empty topics").encode(env));
-                            } else {
-                                let topics: Vec<_> = topics.iter().map(|s| s.as_str()).collect();
-                                trace!("Subscribing to topics={:?}", &topics);
-                                consumer.subscribe(&topics).expect(&format!("Failed to subscribe to topics: {:?}", &topics));
-                                let _ = env.send_and_clear(&pid, move |env| ok().encode(env));
-                            }
-                        }
-
-                        Msg::Unsubscribe(pid) => {
-                            consumer.unsubscribe();
-                            let _ = env.send_and_clear(&pid, move |env| ok().encode(env));
-                        }
-
-                        Msg::Stop => break,
-                    }
-                }
-            });
-        }
-    });
+#[rustler::nif(name = "consumer_stop")]
+fn stop(_resource: ResourceArc<ConsumerResource>) -> Atom {
+    // The consumer will be dropped when the resource is garbage collected
+    ok()
 }

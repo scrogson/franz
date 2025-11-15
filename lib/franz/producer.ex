@@ -20,14 +20,14 @@ defmodule Franz.Producer do
   end
 
   def send(%Producer{ref: ref}, %Message{} = msg) do
-    {:ok, ^ref} = Native.producer_send(ref, msg)
+    task_ref = Native.producer_send(ref, msg)
 
     receive do
-      :ok ->
+      {^task_ref, {:ok, _}} ->
         :ok
 
-      {:error, _reason} = error ->
-        error
+      {^task_ref, {:error, reason}} ->
+        {:error, reason}
     end
   end
 

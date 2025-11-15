@@ -2,7 +2,7 @@ use rdkafka::message::{BorrowedMessage, Message as _};
 use rustler::{Binary, Decoder, Encoder, Env, Error, NifStruct, OwnedBinary, Term};
 use std::io::Write as _;
 
-#[derive(NifStruct)]
+#[derive(Debug, NifStruct)]
 #[module = "Franz.Message"]
 pub struct Message {
     pub payload: Option<Bin>,
@@ -28,6 +28,7 @@ impl<'a> From<&BorrowedMessage<'a>> for Message {
     }
 }
 
+#[derive(Debug)]
 pub struct Bin(pub Vec<u8>);
 
 impl<'a> Encoder for Bin {

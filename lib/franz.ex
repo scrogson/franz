@@ -43,13 +43,12 @@ defmodule Franz do
   @spec create_topics(bootstrap_servers(), [Franz.NewTopic.t()]) :: [topic_result()]
   def create_topics(bootstrap_servers, topics) when is_list(topics) do
     config = %Admin.Config{bootstrap_servers: bootstrap_servers}
-    {:ok, ref} = Native.admin_start(config)
-    {:ok, ^ref} = Native.create_topics(ref, topics)
+    {:ok, admin_ref} = Native.admin_start(config)
+    task_ref = Native.create_topics(admin_ref, topics)
 
     receive do
-      {:ok, results} -> results
-      {:error, error} -> {:error, error}
-      other -> other
+      {^task_ref, {:ok, results}} -> results
+      {^task_ref, {:error, error}} -> {:error, error}
     end
   end
 
@@ -74,12 +73,12 @@ defmodule Franz do
   @spec delete_topics(bootstrap_servers(), [topic()]) :: [topic_result()]
   def delete_topics(bootstrap_servers, topics) when is_list(topics) do
     config = %Admin.Config{bootstrap_servers: bootstrap_servers}
-    {:ok, ref} = Native.admin_start(config)
-    {:ok, ^ref} = Native.delete_topics(ref, topics)
+    {:ok, admin_ref} = Native.admin_start(config)
+    task_ref = Native.delete_topics(admin_ref, topics)
 
     receive do
-      {:ok, results} -> results
-      {:error, error} -> {:error, error}
+      {^task_ref, {:ok, results}} -> results
+      {^task_ref, {:error, error}} -> {:error, error}
     end
   end
 end

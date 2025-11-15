@@ -63,6 +63,7 @@ defmodule Franz.ConsumerTest do
     end)
 
     {:ok, assignments, consumer} = Consumer.receive_assignments(consumer)
+    %{channel: channel} = consumer
 
     for [{^topic, partition, :invalid}, n] <- Enum.zip(assignments, 0..(num_partitions - 1)) do
       assert partition == n
@@ -70,7 +71,7 @@ defmodule Franz.ConsumerTest do
 
     for _ <- 0..99 do
       receive do
-        %Franz.Message{} = msg ->
+        {^channel, {:message, %{msg: msg}}} ->
           :ok = Consumer.commit(consumer, msg)
       end
     end

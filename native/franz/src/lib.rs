@@ -7,14 +7,19 @@ mod config;
 mod consumer;
 mod message;
 mod producer;
-mod runtime;
 
-fn load(env: Env, term: Term) -> bool {
+fn load(_env: Env, load_info: Term) -> bool {
+    // Configure tracing
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(EnvFilter::from_env("FRANZ_LOG"))
         .init();
-    runtime::load(env, term);
+
+    // Configure Tokio runtime for async tasks
+    if let Ok(config) = load_info.decode::<rustler::runtime::RuntimeConfig>() {
+        rustler::runtime::configure(config).ok();
+    }
+
     true
 }
 

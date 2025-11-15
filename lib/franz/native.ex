@@ -16,6 +16,7 @@ defmodule Franz.Native do
 
   # Consumer NIFs
   def consumer_start(_config), do: err()
+  def consumer_stream(_config), do: err()
   def consumer_assign(_ref, _timeout), do: err()
   def consumer_subscribe(_ref, _topics), do: err()
   def consumer_unsubscribe(_ref), do: err()
