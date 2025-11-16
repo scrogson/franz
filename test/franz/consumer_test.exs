@@ -1,5 +1,5 @@
 defmodule Franz.ConsumerTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   doctest Franz
 
   alias Franz.{Consumer, Producer}
@@ -29,7 +29,7 @@ defmodule Franz.ConsumerTest do
       })
 
     # Wait for topic metadata to propagate
-    Process.sleep(200)
+    Process.sleep(50)
 
     on_exit(fn ->
       :ok = Franz.delete_topic(brokers, topic)
@@ -132,7 +132,7 @@ defmodule Franz.ConsumerTest do
     :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic_a, num_partitions: 2})
     :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic_b, num_partitions: 2})
 
-    Process.sleep(200)
+    Process.sleep(50)
 
     on_exit(fn ->
       :ok = Franz.delete_topic(brokers, topic_a)
@@ -597,7 +597,7 @@ defmodule Franz.ConsumerTest do
     :ok = Producer.flush(producer)
 
     # Wait a bit for messages to be available
-    Process.sleep(200)
+    Process.sleep(50)
 
     # Consume only 10 messages
     for _ <- 0..9 do
@@ -842,7 +842,7 @@ defmodule Franz.ConsumerTest do
     IO.puts("\n✓ Consumer started with #{length(assignments)} partition assignments")
 
     # Wait for initial rebalance to complete
-    Process.sleep(500)
+    Process.sleep(100)
 
     # Consume all messages
     consume_start = System.monotonic_time(:millisecond)

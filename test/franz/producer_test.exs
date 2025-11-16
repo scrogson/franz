@@ -26,7 +26,7 @@ defmodule Franz.ProducerTest do
       })
 
     # Wait for topic metadata to propagate
-    Process.sleep(200)
+    Process.sleep(50)
 
     on_exit(fn ->
       :ok = Franz.delete_topic(brokers, topic)

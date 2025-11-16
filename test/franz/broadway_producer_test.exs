@@ -1,6 +1,6 @@
 if Code.ensure_loaded?(Broadway) do
   defmodule Franz.BroadwayProducerTest do
-    use ExUnit.Case, async: false
+    use ExUnit.Case, async: true
 
     alias Franz.{Producer, Message}
 
@@ -105,7 +105,7 @@ if Code.ensure_loaded?(Broadway) do
       })
 
     # Wait for topic metadata to propagate
-    Process.sleep(200)
+    Process.sleep(50)
 
     on_exit(fn ->
       :ok = Franz.delete_topic(brokers, topic)
@@ -127,7 +127,7 @@ if Code.ensure_loaded?(Broadway) do
       )
 
     # Give Broadway time to start and subscribe
-    Process.sleep(500)
+    Process.sleep(100)
 
     # Produce test messages
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
@@ -169,7 +169,7 @@ if Code.ensure_loaded?(Broadway) do
       )
 
     # Give Broadway time to start and subscribe
-    Process.sleep(500)
+    Process.sleep(100)
 
     # Produce test messages
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
@@ -213,7 +213,7 @@ if Code.ensure_loaded?(Broadway) do
       )
 
     # Give Broadway time to start and subscribe
-    Process.sleep(500)
+    Process.sleep(100)
 
     # Produce message with headers
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))

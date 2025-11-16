@@ -204,7 +204,7 @@ defmodule Franz.ErrorTest do
     # Create topic first time - should succeed
     assert :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic})
 
-    Process.sleep(200)
+    Process.sleep(50)
 
     # Try to create same topic again - should return error
     assert {:error, %Franz.Error{type: :topic_already_exists}} =
@@ -228,7 +228,7 @@ defmodule Franz.ErrorTest do
     :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic, num_partitions: 2})
 
     # Wait for topic metadata to propagate
-    Process.sleep(200)
+    Process.sleep(50)
 
     on_exit(fn ->
       :ok = Franz.delete_topic(brokers, topic)

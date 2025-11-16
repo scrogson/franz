@@ -1,5 +1,5 @@
 defmodule Franz.ConsumerServerTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Franz.{Consumer, Producer, Message}
 
@@ -14,7 +14,7 @@ defmodule Franz.ConsumerServerTest do
       })
 
     # Wait for topic metadata to propagate
-    Process.sleep(200)
+    Process.sleep(50)
 
     on_exit(fn ->
       :ok = Franz.delete_topic(brokers, topic)
@@ -48,7 +48,7 @@ defmodule Franz.ConsumerServerTest do
       )
 
     # Give consumer time to subscribe and get assignments
-    Process.sleep(500)
+    Process.sleep(100)
 
     # Send test messages
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
@@ -98,7 +98,7 @@ defmodule Franz.ConsumerServerTest do
         config: config
       )
 
-    Process.sleep(500)
+    Process.sleep(100)
 
     # Send initial messages
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
@@ -181,7 +181,7 @@ defmodule Franz.ConsumerServerTest do
         auto_commit: true
       )
 
-    Process.sleep(500)
+    Process.sleep(100)
 
     # Send messages
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
@@ -203,7 +203,7 @@ defmodule Franz.ConsumerServerTest do
     end
 
     # Give commits time to complete
-    Process.sleep(200)
+    Process.sleep(50)
 
     # Check lag - should have lag for the uncommitted messages (10 messages)
     {:ok, lag_map} = Consumer.Server.lag(consumer_server)
@@ -243,7 +243,7 @@ defmodule Franz.ConsumerServerTest do
         config: config
       )
 
-    Process.sleep(500)
+    Process.sleep(100)
 
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 

@@ -156,24 +156,19 @@ defmodule Franz.Consumer.Server do
     auto_commit = Keyword.get(opts, :auto_commit, true)
 
     # Start consumer
-    case Consumer.start(config) do
-      {:ok, consumer} ->
-        state = %{
-          consumer: consumer,
-          topics: topics,
-          handler: handler,
-          auto_commit: auto_commit,
-          config: config
-        }
+    {:ok, consumer} = Consumer.start(config)
 
-        Logger.info("Consumer.Server started")
+    state = %{
+      consumer: consumer,
+      topics: topics,
+      handler: handler,
+      auto_commit: auto_commit,
+      config: config
+    }
 
-        {:ok, state, {:continue, :subscribe}}
+    Logger.info("Consumer.Server started")
 
-      {:error, reason} ->
-        Logger.error("Failed to start consumer: #{inspect(reason)}")
-        {:stop, reason}
-    end
+    {:ok, state, {:continue, :subscribe}}
   end
 
   @impl true

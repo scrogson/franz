@@ -1,7 +1,7 @@
 use crate::atoms::ok;
 use crate::config::ProducerConfig;
 use crate::message::{DeliveryReceipt, Message};
-use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
+use rdkafka::config::ClientConfig;
 use rdkafka::message::OwnedHeaders;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rustler::{Atom, ResourceArc};

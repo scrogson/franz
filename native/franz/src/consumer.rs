@@ -270,7 +270,7 @@ impl ConsumerContext for RebalanceContext {
 }
 
 struct ConsumerResource {
-    consumer: AssertUnwindSafe<StreamConsumer<Context>>,
+    _consumer: AssertUnwindSafe<StreamConsumer<Context>>,
 }
 
 #[rustler::resource_impl]
@@ -284,7 +284,7 @@ fn start(env: Env, config: ConsumerConfig) -> Result<ResourceArc<ConsumerResourc
             .map_err(|e| format!("Failed to create Kafka consumer: {}", e))?;
 
     Ok(ResourceArc::new(ConsumerResource {
-        consumer: AssertUnwindSafe(consumer),
+        _consumer: AssertUnwindSafe(consumer),
     }))
 }
 

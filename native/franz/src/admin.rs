@@ -238,6 +238,81 @@ pub struct ClusterMetadata {
     pub brokers: Vec<BrokerMetadata>,
 }
 
+/// Configuration for adding partitions to an existing topic.
+#[derive(NifStruct, Clone)]
+#[module = "Franz.NewPartitions"]
+pub struct NewPartitions {
+    /// The topic name
+    name: String,
+    /// Total number of partitions after the operation completes
+    total_count: i32,
+    /// Optional replica assignments for new partitions only
+    /// Each inner vec specifies broker IDs for that new partition's replicas
+    assignment: Option<Vec<Vec<i32>>>,
+}
+
+#[rustler::task(name = "create_partitions")]
+async fn create_partitions(
+    admin_resource: ResourceArc<AdminResource>,
+    new_partitions: Vec<NewPartitions>,
+) -> Result<Vec<Result<String, (String, String)>>, String> {
+    // Pre-process assignments to ensure proper lifetimes
+    let assignment_storage: Vec<Option<Vec<Vec<i32>>>> = new_partitions
+        .iter()
+        .map(|np| np.assignment.clone())
+        .collect();
+
+    let assignment_refs: Vec<Option<Vec<&[i32]>>> = assignment_storage
+        .iter()
+        .map(|opt_assignments| {
+            opt_assignments.as_ref().map(|assignments| {
+                assignments
+                    .iter()
+                    .map(|v| v.as_slice())
+                    .collect()
+            })
+        })
+        .collect();
+
+    let partitions: Vec<rdkafka::admin::NewPartitions> = new_partitions
+        .iter()
+        .enumerate()
+        .map(|(idx, np)| {
+            let mut new_parts = rdkafka::admin::NewPartitions::new(
+                &np.name,
+                np.total_count as usize,
+            );
+
+            if let Some(ref assignment) = assignment_refs[idx] {
+                new_parts = new_parts.assign(assignment.as_slice());
+            }
+
+            new_parts
+        })
+        .collect();
+
+    let admin_options = rdkafka::admin::AdminOptions::new();
+
+    match admin_resource
+        .client
+        .0
+        .create_partitions(&partitions, &admin_options)
+        .await
+    {
+        Ok(results) => {
+            let partition_results: Vec<Result<String, (String, String)>> = results
+                .into_iter()
+                .map(|result| match result {
+                    Ok(topic) => Ok(topic.to_string()),
+                    Err((topic, error)) => Err((topic.to_string(), error.to_string())),
+                })
+                .collect();
+            Ok(partition_results)
+        }
+        Err(err) => Err(err.to_string()),
+    }
+}
+
 #[rustler::nif(name = "admin_stop")]
 fn stop(_resource: ResourceArc<AdminResource>) -> Atom {
     // The admin client will be dropped when the resource is garbage collected

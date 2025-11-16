@@ -294,4 +294,85 @@ defmodule Franz do
         Error.wrap({:error, :timeout})
     end
   end
+
+  defmodule NewPartitions do
+    @moduledoc """
+    Configuration for adding partitions to an existing Kafka topic.
+
+    ## Fields
+
+    - `name` - The topic name
+    - `total_count` - Total number of partitions after the operation completes
+    - `assignment` - Optional replica assignments for new partitions only
+
+    ## Examples
+
+        # Add partitions without specifying replica placement
+        %Franz.NewPartitions{name: "events", total_count: 10}
+
+        # Add partitions with specific replica assignments for new partitions
+        # If topic currently has 5 partitions and we want 7, specify assignments for partitions 5 and 6
+        %Franz.NewPartitions{
+          name: "logs",
+          total_count: 7,
+          assignment: [[1, 2], [2, 3]]  # Replicas for new partitions only
+        }
+    """
+
+    defstruct name: "",
+              total_count: 1,
+              assignment: nil
+
+    @type t :: %Franz.NewPartitions{
+            name: Franz.topic(),
+            total_count: pos_integer(),
+            assignment: [[pos_integer()]] | nil
+          }
+  end
+
+  @doc """
+  Add partitions to an existing topic.
+
+  ## Examples
+
+      :ok = Franz.create_partitions("localhost:9092", %Franz.NewPartitions{
+        name: "events",
+        total_count: 10
+      })
+  """
+  @spec create_partitions(bootstrap_servers(), Franz.NewPartitions.t()) :: topic_result()
+  def create_partitions(bootstrap_servers, %Franz.NewPartitions{} = partitions) do
+    case create_partitions_batch(bootstrap_servers, [partitions]) do
+      [{:ok, _}] -> :ok
+      [{:error, {_, error}}] -> Error.wrap({:error, error})
+    end
+  end
+
+  @doc """
+  Add partitions to multiple topics at once.
+
+  Note that this operation is not transactional. Adding partitions to some topics
+  may succeed while others fail. Be sure to check the result of each operation.
+
+  ## Examples
+
+      results = Franz.create_partitions_batch("localhost:9092", [
+        %Franz.NewPartitions{name: "events", total_count: 10},
+        %Franz.NewPartitions{name: "logs", total_count: 20}
+      ])
+  """
+  @spec create_partitions_batch(bootstrap_servers(), [Franz.NewPartitions.t()]) :: [topic_result()]
+  def create_partitions_batch(bootstrap_servers, partitions) when is_list(partitions) do
+    config = %Admin.Config{bootstrap_servers: bootstrap_servers}
+    {:ok, admin_ref} = Native.admin_start(config)
+    task_ref = Native.create_partitions(admin_ref, partitions)
+
+    receive do
+      {^task_ref, {:ok, results}} -> results
+      {^task_ref, {:error, error}} -> {:error, error}
+    after
+      30_000 ->
+        {:error, :timeout}
+    end
+  end
 end

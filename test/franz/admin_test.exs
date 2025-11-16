@@ -1,5 +1,6 @@
 defmodule Franz.AdminTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  import Franz.TestHelpers
 
   setup do
     {:ok, brokers: "127.0.0.1:9094"}
@@ -10,7 +11,7 @@ defmodule Franz.AdminTest do
       # Create a test topic
       topic = Franz.Utils.random_bytes()
       :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic})
-      Process.sleep(200)
+      wait_for_topic(brokers, topic)
 
       on_exit(fn ->
         :ok = Franz.delete_topic(brokers, topic)
@@ -96,7 +97,7 @@ defmodule Franz.AdminTest do
 
       # Create first topic
       :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: existing_topic})
-      Process.sleep(200)
+      wait_for_topic(brokers, existing_topic)
 
       on_exit(fn ->
         Franz.delete_topic(brokers, existing_topic)
@@ -126,7 +127,7 @@ defmodule Franz.AdminTest do
       # Create both topics
       :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic1})
       :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic2})
-      Process.sleep(200)
+      wait_for_topics(brokers, [topic1, topic2])
 
       # Delete both at once
       results = Franz.delete_topics(brokers, [topic1, topic2])
@@ -140,10 +141,113 @@ defmodule Franz.AdminTest do
 
       # Create only one topic
       :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: existing_topic})
-      Process.sleep(200)
+      wait_for_topic(brokers, existing_topic)
 
       # Try to delete both
       results = Franz.delete_topics(brokers, [existing_topic, non_existent_topic])
+
+      assert length(results) == 2
+      # First should succeed
+      assert match?({:ok, _}, hd(results))
+      # Second should fail (doesn't exist)
+      assert match?({:error, _}, Enum.at(results, 1))
+    end
+  end
+
+  describe "create_partitions/2" do
+    test "adds partitions to existing topic", %{brokers: brokers} do
+      topic = Franz.Utils.random_bytes()
+
+      # Create topic with 1 partition
+      :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic, num_partitions: 1})
+      wait_for_topic(brokers, topic)
+
+      on_exit(fn ->
+        Franz.delete_topic(brokers, topic)
+      end)
+
+      # Add partitions to make it 5 total
+      assert :ok =
+               Franz.create_partitions(brokers, %Franz.NewPartitions{name: topic, total_count: 5})
+
+      wait_for_topic(brokers, topic)
+
+      # Verify by listing topics (we can't easily check partition count without consumer metadata)
+      assert {:ok, topics} = Franz.list_topics(brokers)
+      assert topic in topics
+    end
+
+    test "returns error when topic doesn't exist", %{brokers: brokers} do
+      non_existent_topic = Franz.Utils.random_bytes()
+
+      assert {:error, %Franz.Error{}} =
+               Franz.create_partitions(brokers, %Franz.NewPartitions{
+                 name: non_existent_topic,
+                 total_count: 5
+               })
+    end
+
+    test "returns error when reducing partition count", %{brokers: brokers} do
+      topic = Franz.Utils.random_bytes()
+
+      # Create topic with 5 partitions
+      :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic, num_partitions: 5})
+      wait_for_topic(brokers, topic)
+
+      on_exit(fn ->
+        Franz.delete_topic(brokers, topic)
+      end)
+
+      # Try to reduce to 3 (should fail - Kafka doesn't allow reducing partitions)
+      assert {:error, %Franz.Error{}} =
+               Franz.create_partitions(brokers, %Franz.NewPartitions{name: topic, total_count: 3})
+    end
+  end
+
+  describe "create_partitions_batch/2" do
+    test "adds partitions to multiple topics at once", %{brokers: brokers} do
+      topic1 = Franz.Utils.random_bytes()
+      topic2 = Franz.Utils.random_bytes()
+
+      # Create both topics with 1 partition each
+      :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic1, num_partitions: 1})
+      :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: topic2, num_partitions: 1})
+      wait_for_topics(brokers, [topic1, topic2])
+
+      on_exit(fn ->
+        Franz.delete_topic(brokers, topic1)
+        Franz.delete_topic(brokers, topic2)
+      end)
+
+      # Add partitions to both
+      results =
+        Franz.create_partitions_batch(brokers, [
+          %Franz.NewPartitions{name: topic1, total_count: 3},
+          %Franz.NewPartitions{name: topic2, total_count: 4}
+        ])
+
+      assert length(results) == 2
+      assert Enum.all?(results, fn result -> match?({:ok, _}, result) end)
+    end
+
+    test "returns individual results for each topic", %{brokers: brokers} do
+      existing_topic = Franz.Utils.random_bytes()
+      non_existent_topic = Franz.Utils.random_bytes()
+
+      # Create only one topic
+      :ok = Franz.create_topic(brokers, %Franz.NewTopic{name: existing_topic, num_partitions: 1})
+      wait_for_topic(brokers, existing_topic)
+
+      on_exit(fn ->
+        Franz.delete_topic(brokers, existing_topic)
+      end)
+
+      # Try to add partitions to both
+      results =
+        Franz.create_partitions_batch(brokers, [
+          %Franz.NewPartitions{name: existing_topic, total_count: 3},
+          %Franz.NewPartitions{name: non_existent_topic, total_count: 5}
+        ])
 
       assert length(results) == 2
       # First should succeed

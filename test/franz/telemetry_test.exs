@@ -21,7 +21,7 @@ defmodule Franz.TelemetryTest do
       })
 
     # Wait for topic metadata to propagate
-    Process.sleep(200)
+    Process.sleep(50)
 
     on_exit(fn ->
       :ok = Franz.delete_topic(brokers, topic)
@@ -208,7 +208,7 @@ defmodule Franz.TelemetryTest do
     assert metadata.topic == topic
     assert metadata.num_partitions == 1
 
-    Process.sleep(200)
+    Process.sleep(50)
 
     # Delete topic
     :ok = Franz.delete_topic(brokers, topic)

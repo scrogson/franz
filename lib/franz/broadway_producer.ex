@@ -148,26 +148,21 @@ if Code.ensure_loaded?(Broadway) do
     topics = Keyword.fetch!(opts, :topics)
     receive_interval = Keyword.get(opts, :receive_interval, 100)
 
-    case Consumer.start(config) do
-      {:ok, consumer} ->
-        state = %{
-          consumer: consumer,
-          topics: topics,
-          demand: 0,
-          receive_interval: receive_interval,
-          receive_timer: nil,
-          buffer: :queue.new()
-        }
+    {:ok, consumer} = Consumer.start(config)
 
-        Logger.info("Franz.BroadwayProducer started")
+    state = %{
+      consumer: consumer,
+      topics: topics,
+      demand: 0,
+      receive_interval: receive_interval,
+      receive_timer: nil,
+      buffer: :queue.new()
+    }
 
-        {:producer, state,
-         dispatcher: {GenStage.DemandDispatcher, [shuffle_demands_on_first_dispatch: true]}}
+    Logger.info("Franz.BroadwayProducer started")
 
-      {:error, reason} ->
-        Logger.error("Failed to start Franz consumer: #{inspect(reason)}")
-        {:stop, reason}
-    end
+    {:producer, state,
+     dispatcher: {GenStage.DemandDispatcher, [shuffle_demands_on_first_dispatch: true]}}
   end
 
   @impl true
