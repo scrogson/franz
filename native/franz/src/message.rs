@@ -55,7 +55,7 @@ impl<'a> From<&BorrowedMessage<'a>> for Message {
 #[derive(Debug)]
 pub struct Bin(pub Vec<u8>);
 
-impl<'a> Encoder for Bin {
+impl Encoder for Bin {
     fn encode<'b>(&self, env: Env<'b>) -> Term<'b> {
         let mut bin = OwnedBinary::new(self.0.len()).expect("Failed to alloc");
         bin.as_mut_slice().write_all(&self.0).unwrap();

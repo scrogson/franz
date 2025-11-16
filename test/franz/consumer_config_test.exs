@@ -51,51 +51,39 @@ defmodule Franz.Consumer.ConfigTest do
 
   describe "fluent builders" do
     test "group_id/2 sets group ID" do
-      config =
-        Config.new()
-        |> Config.group_id("my-consumer-group")
+      config = Config.group_id(Config.new(), "my-consumer-group")
 
       assert config.group_id == "my-consumer-group"
     end
 
     test "bootstrap_servers/2 sets bootstrap servers" do
-      config =
-        Config.new()
-        |> Config.bootstrap_servers("localhost:9092")
+      config = Config.bootstrap_servers(Config.new(), "localhost:9092")
 
       assert config.bootstrap_servers == "localhost:9092"
     end
 
     test "auto_offset_reset/2 sets offset reset strategy" do
       for reset <- [:smallest, :earliest, :beginning, :largest, :latest, :end, :error] do
-        config =
-          Config.new()
-          |> Config.auto_offset_reset(reset)
+        config = Config.auto_offset_reset(Config.new(), reset)
 
         assert config.auto_offset_reset == reset
       end
     end
 
     test "enable_auto_commit/2 enables auto commit" do
-      config =
-        Config.new()
-        |> Config.enable_auto_commit(true)
+      config = Config.enable_auto_commit(Config.new(), true)
 
       assert config.enable_auto_commit == true
     end
 
     test "enable_auto_commit/2 disables auto commit" do
-      config =
-        Config.new()
-        |> Config.enable_auto_commit(false)
+      config = Config.enable_auto_commit(Config.new(), false)
 
       assert config.enable_auto_commit == false
     end
 
     test "topics/2 sets topics list" do
-      config =
-        Config.new()
-        |> Config.topics(["events", "notifications", "logs"])
+      config = Config.topics(Config.new(), ["events", "notifications", "logs"])
 
       assert config.topics == ["events", "notifications", "logs"]
     end
@@ -103,17 +91,17 @@ defmodule Franz.Consumer.ConfigTest do
     test "security/2 sets security config" do
       security = SecurityConfig.new(security_protocol: :sasl_ssl)
 
-      config =
-        Config.new()
-        |> Config.security(security)
+      config = Config.security(Config.new(), security)
 
       assert config.security == security
     end
 
     test "security/2 accepts nil" do
       config =
-        Config.new(security: SecurityConfig.new(security_protocol: :sasl_ssl))
-        |> Config.security(nil)
+        Config.security(
+          Config.new(security: SecurityConfig.new(security_protocol: :sasl_ssl)),
+          nil
+        )
 
       assert is_nil(config.security)
     end

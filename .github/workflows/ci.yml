@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+env:
+  MIX_ENV: test
+  KAFKA_BROKER: 127.0.0.1:9094
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    services:
+      redpanda:
+        image: redpandadata/redpanda:latest
+        ports:
+          - 9092:9092
+          - 9094:9094
+        options: >-
+          --health-cmd "rpk cluster health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        env:
+          REDPANDA_ARGS: >-
+            --smp 1
+            --reserve-memory 0M
+            --overprovisioned
+            --node-id 0
+            --check=false
+            --kafka-addr PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:9094
+            --advertise-kafka-addr PLAINTEXT://redpanda:9092,OUTSIDE://localhost:9094
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.17'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Restore Elixir dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - name: Restore Rust dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            native/franz/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install Elixir dependencies
+        run: mix deps.get
+
+      - name: Check Elixir formatting
+        run: mix format --check-formatted
+
+      - name: Check Rust formatting
+        working-directory: native/franz
+        run: cargo fmt --check
+
+      - name: Run Credo
+        run: mix credo
+
+      - name: Run Clippy
+        working-directory: native/franz
+        run: cargo clippy
+
+      - name: Compile (warnings as errors)
+        run: mix compile --warnings-as-errors
+
+      - name: Run tests
+        run: mix test

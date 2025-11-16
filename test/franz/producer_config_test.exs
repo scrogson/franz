@@ -10,7 +10,7 @@ defmodule Franz.Producer.ConfigTest do
       assert config.acks == :all
       assert config.compression_type == :none
       assert config.linger_ms == 0
-      assert config.batch_size == 16384
+      assert config.batch_size == 16_384
       assert config.max_in_flight == 5
       assert is_nil(config.security)
     end
@@ -52,18 +52,14 @@ defmodule Franz.Producer.ConfigTest do
 
   describe "fluent builders" do
     test "bootstrap_servers/2 sets bootstrap servers" do
-      config =
-        Config.new()
-        |> Config.bootstrap_servers("localhost:9092")
+      config = Config.bootstrap_servers(Config.new(), "localhost:9092")
 
       assert config.bootstrap_servers == "localhost:9092"
     end
 
     test "acks/2 sets acknowledgement level" do
       for level <- [:none, :leader, :all] do
-        config =
-          Config.new()
-          |> Config.acks(level)
+        config = Config.acks(Config.new(), level)
 
         assert config.acks == level
       end
@@ -71,34 +67,26 @@ defmodule Franz.Producer.ConfigTest do
 
     test "compression_type/2 sets compression" do
       for type <- [:none, :gzip, :snappy, :lz4, :zstd] do
-        config =
-          Config.new()
-          |> Config.compression_type(type)
+        config = Config.compression_type(Config.new(), type)
 
         assert config.compression_type == type
       end
     end
 
     test "linger_ms/2 sets linger time" do
-      config =
-        Config.new()
-        |> Config.linger_ms(100)
+      config = Config.linger_ms(Config.new(), 100)
 
       assert config.linger_ms == 100
     end
 
     test "batch_size/2 sets batch size" do
-      config =
-        Config.new()
-        |> Config.batch_size(2_000_000)
+      config = Config.batch_size(Config.new(), 2_000_000)
 
       assert config.batch_size == 2_000_000
     end
 
     test "max_in_flight/2 sets max in flight" do
-      config =
-        Config.new()
-        |> Config.max_in_flight(20)
+      config = Config.max_in_flight(Config.new(), 20)
 
       assert config.max_in_flight == 20
     end
@@ -106,17 +94,17 @@ defmodule Franz.Producer.ConfigTest do
     test "security/2 sets security config" do
       security = SecurityConfig.new(security_protocol: :sasl_ssl)
 
-      config =
-        Config.new()
-        |> Config.security(security)
+      config = Config.security(Config.new(), security)
 
       assert config.security == security
     end
 
     test "security/2 accepts nil" do
       config =
-        Config.new(security: SecurityConfig.new(security_protocol: :sasl_ssl))
-        |> Config.security(nil)
+        Config.security(
+          Config.new(security: SecurityConfig.new(security_protocol: :sasl_ssl)),
+          nil
+        )
 
       assert is_nil(config.security)
     end

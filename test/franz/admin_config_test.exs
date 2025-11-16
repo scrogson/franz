@@ -44,9 +44,7 @@ defmodule Franz.Admin.ConfigTest do
 
   describe "fluent builders" do
     test "bootstrap_servers/2 sets bootstrap servers" do
-      config =
-        Config.new()
-        |> Config.bootstrap_servers("localhost:9092")
+      config = Config.bootstrap_servers(Config.new(), "localhost:9092")
 
       assert config.bootstrap_servers == "localhost:9092"
     end
@@ -59,17 +57,17 @@ defmodule Franz.Admin.ConfigTest do
           sasl_username: "admin"
         )
 
-      config =
-        Config.new()
-        |> Config.security(security)
+      config = Config.security(Config.new(), security)
 
       assert config.security == security
     end
 
     test "security/2 accepts nil" do
       config =
-        Config.new(security: SecurityConfig.new(security_protocol: :sasl_ssl))
-        |> Config.security(nil)
+        Config.security(
+          Config.new(security: SecurityConfig.new(security_protocol: :sasl_ssl)),
+          nil
+        )
 
       assert is_nil(config.security)
     end

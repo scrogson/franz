@@ -1,5 +1,6 @@
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rustler::{NifStruct, NifUnitEnum};
+use std::fmt;
 
 #[derive(NifUnitEnum)]
 pub enum AutoOffsetReset {
@@ -21,15 +22,16 @@ pub enum SaslMechanism {
     Oauthbearer,
 }
 
-impl SaslMechanism {
-    pub fn to_string(&self) -> String {
-        match self {
-            SaslMechanism::Plain => "PLAIN".to_string(),
-            SaslMechanism::ScramSha256 => "SCRAM-SHA-256".to_string(),
-            SaslMechanism::ScramSha512 => "SCRAM-SHA-512".to_string(),
-            SaslMechanism::Gssapi => "GSSAPI".to_string(),
-            SaslMechanism::Oauthbearer => "OAUTHBEARER".to_string(),
-        }
+impl fmt::Display for SaslMechanism {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            SaslMechanism::Plain => "PLAIN",
+            SaslMechanism::ScramSha256 => "SCRAM-SHA-256",
+            SaslMechanism::ScramSha512 => "SCRAM-SHA-512",
+            SaslMechanism::Gssapi => "GSSAPI",
+            SaslMechanism::Oauthbearer => "OAUTHBEARER",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -41,14 +43,15 @@ pub enum SecurityProtocol {
     SaslSsl,
 }
 
-impl SecurityProtocol {
-    pub fn to_string(&self) -> String {
-        match self {
-            SecurityProtocol::Plaintext => "plaintext".to_string(),
-            SecurityProtocol::Ssl => "ssl".to_string(),
-            SecurityProtocol::SaslPlaintext => "sasl_plaintext".to_string(),
-            SecurityProtocol::SaslSsl => "sasl_ssl".to_string(),
-        }
+impl fmt::Display for SecurityProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            SecurityProtocol::Plaintext => "plaintext",
+            SecurityProtocol::Ssl => "ssl",
+            SecurityProtocol::SaslPlaintext => "sasl_plaintext",
+            SecurityProtocol::SaslSsl => "sasl_ssl",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -58,12 +61,13 @@ pub enum SslEndpointIdentification {
     Https,
 }
 
-impl SslEndpointIdentification {
-    pub fn to_string(&self) -> String {
-        match self {
-            SslEndpointIdentification::None => "none".to_string(),
-            SslEndpointIdentification::Https => "https".to_string(),
-        }
+impl fmt::Display for SslEndpointIdentification {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            SslEndpointIdentification::None => "none",
+            SslEndpointIdentification::Https => "https",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -83,10 +87,10 @@ pub struct SecurityConfig {
 
 impl SecurityConfig {
     pub fn apply_to_config(&self, cfg: &mut ClientConfig) {
-        cfg.set("security.protocol", &self.security_protocol.to_string());
+        cfg.set("security.protocol", self.security_protocol.to_string());
 
         if let Some(mechanism) = &self.sasl_mechanism {
-            cfg.set("sasl.mechanism", &mechanism.to_string());
+            cfg.set("sasl.mechanism", mechanism.to_string());
         }
 
         if let Some(username) = &self.sasl_username {
@@ -115,39 +119,38 @@ impl SecurityConfig {
 
         cfg.set(
             "ssl.endpoint.identification.algorithm",
-            &self.ssl_endpoint_identification_algorithm.to_string(),
+            self.ssl_endpoint_identification_algorithm.to_string(),
         );
     }
 }
 
-impl AutoOffsetReset {
-    pub fn to_string(self) -> String {
-        use AutoOffsetReset::*;
-
-        match self {
-            Smallest => "smallest".to_string(),
-            Earliest => "earliest".to_string(),
-            Beginning => "beginning".to_string(),
-            Largest => "largest".to_string(),
-            Latest => "latest".to_string(),
-            End => "end".to_string(),
-            Error => "error".to_string(),
-        }
+impl fmt::Display for AutoOffsetReset {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            AutoOffsetReset::Smallest => "smallest",
+            AutoOffsetReset::Earliest => "earliest",
+            AutoOffsetReset::Beginning => "beginning",
+            AutoOffsetReset::Largest => "largest",
+            AutoOffsetReset::Latest => "latest",
+            AutoOffsetReset::End => "end",
+            AutoOffsetReset::Error => "error",
+        };
+        write!(f, "{}", s)
     }
 }
 
-impl Into<ClientConfig> for ConsumerConfig {
-    fn into(self) -> ClientConfig {
+impl From<ConsumerConfig> for ClientConfig {
+    fn from(val: ConsumerConfig) -> Self {
         let mut cfg = ClientConfig::new();
-        cfg.set("auto.offset.reset", &self.auto_offset_reset.to_string());
-        cfg.set("bootstrap.servers", &self.bootstrap_servers);
-        cfg.set("enable.auto.commit", &self.enable_auto_commit.to_string());
+        cfg.set("auto.offset.reset", val.auto_offset_reset.to_string());
+        cfg.set("bootstrap.servers", &val.bootstrap_servers);
+        cfg.set("enable.auto.commit", val.enable_auto_commit.to_string());
 
-        if let Some(group_id) = &self.group_id {
+        if let Some(group_id) = &val.group_id {
             cfg.set("group.id", group_id);
         }
 
-        if let Some(security) = &self.security {
+        if let Some(security) = &val.security {
             security.apply_to_config(&mut cfg);
         }
 
@@ -178,13 +181,14 @@ pub enum Acks {
     All,
 }
 
-impl Acks {
-    pub fn to_string(&self) -> String {
-        match self {
-            Acks::None => "0".to_string(),
-            Acks::Leader => "1".to_string(),
-            Acks::All => "-1".to_string(),
-        }
+impl fmt::Display for Acks {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            Acks::None => "0",
+            Acks::Leader => "1",
+            Acks::All => "-1",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -197,15 +201,16 @@ pub enum CompressionType {
     Zstd,
 }
 
-impl CompressionType {
-    pub fn to_string(&self) -> String {
-        match self {
-            CompressionType::None => "none".to_string(),
-            CompressionType::Gzip => "gzip".to_string(),
-            CompressionType::Snappy => "snappy".to_string(),
-            CompressionType::Lz4 => "lz4".to_string(),
-            CompressionType::Zstd => "zstd".to_string(),
-        }
+impl fmt::Display for CompressionType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            CompressionType::None => "none",
+            CompressionType::Gzip => "gzip",
+            CompressionType::Snappy => "snappy",
+            CompressionType::Lz4 => "lz4",
+            CompressionType::Zstd => "zstd",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -222,20 +227,20 @@ pub struct ProducerConfig {
     pub max_in_flight: i64,
 }
 
-impl Into<ClientConfig> for ProducerConfig {
-    fn into(self) -> ClientConfig {
+impl From<ProducerConfig> for ClientConfig {
+    fn from(val: ProducerConfig) -> Self {
         let mut cfg = ClientConfig::new();
-        cfg.set("bootstrap.servers", &self.bootstrap_servers);
-        cfg.set("acks", &self.acks.to_string());
-        cfg.set("compression.type", &self.compression_type.to_string());
-        cfg.set("linger.ms", &self.linger_ms.to_string());
-        cfg.set("batch.size", &self.batch_size.to_string());
+        cfg.set("bootstrap.servers", &val.bootstrap_servers);
+        cfg.set("acks", val.acks.to_string());
+        cfg.set("compression.type", val.compression_type.to_string());
+        cfg.set("linger.ms", val.linger_ms.to_string());
+        cfg.set("batch.size", val.batch_size.to_string());
         cfg.set(
             "max.in.flight.requests.per.connection",
-            &self.max_in_flight.to_string(),
+            val.max_in_flight.to_string(),
         );
 
-        if let Some(security) = &self.security {
+        if let Some(security) = &val.security {
             security.apply_to_config(&mut cfg);
         }
 

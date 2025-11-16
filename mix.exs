@@ -45,7 +45,8 @@ defmodule Franz.MixProject do
       {:telemetry, "~> 1.0"},
       {:broadway, "~> 1.0", optional: true},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
-      {:excoveralls, "~> 0.18", only: :test}
+      {:excoveralls, "~> 0.18", only: :test},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -84,7 +85,7 @@ defmodule Franz.MixProject do
         "Broadway Integration": [
           Franz.BroadwayProducer
         ],
-        "Configuration": [
+        Configuration: [
           Franz.Consumer.Config,
           Franz.Producer.Config,
           Franz.Admin.Config

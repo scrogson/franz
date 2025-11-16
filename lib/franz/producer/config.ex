@@ -6,7 +6,7 @@ defmodule Franz.Producer.Config do
             acks: :all,
             compression_type: :none,
             linger_ms: 0,
-            batch_size: 16384,
+            batch_size: 16_384,
             max_in_flight: 5
 
   @type acks :: :none | :leader | :all

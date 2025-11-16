@@ -57,7 +57,7 @@ defmodule Franz.TelemetryTest do
 
     # Send message
     {:ok, _receipt} =
-        Producer.send(producer, %Message{
+      Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
         key: "test-key",
@@ -140,7 +140,7 @@ defmodule Franz.TelemetryTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     {:ok, _receipt} =
-        Producer.send(producer, %Message{
+      Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
         payload: "telemetry-test"

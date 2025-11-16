@@ -16,6 +16,7 @@ use std::time::Duration;
 use tracing::trace;
 
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum Offset {
     Beginning,
     End,
@@ -38,7 +39,7 @@ impl From<&rdkafka::Offset> for Offset {
     }
 }
 
-impl<'a> Encoder for Offset {
+impl Encoder for Offset {
     fn encode<'b>(&self, env: Env<'b>) -> Term<'b> {
         match self {
             Offset::Beginning => atoms::beginning().encode(env),
@@ -200,11 +201,11 @@ impl ClientContext for Context {}
 
 impl ConsumerContext for Context {
     fn pre_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance) {
-        self.handle_rebalance(atoms::pre_rebalance(), &rebalance);
+        self.handle_rebalance(atoms::pre_rebalance(), rebalance);
     }
 
     fn post_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance) {
-        self.handle_rebalance(atoms::post_rebalance(), &rebalance);
+        self.handle_rebalance(atoms::post_rebalance(), rebalance);
     }
 }
 

@@ -54,8 +54,8 @@ defmodule Franz do
     """
 
     @type t ::
-      {:fixed, %{factor: pos_integer()}}
-      | {:variable, %{assignments: [[pos_integer()]]}}
+            {:fixed, %{factor: pos_integer()}}
+            | {:variable, %{assignments: [[pos_integer()]]}}
 
     @doc """
     Create a fixed replication configuration.
@@ -361,7 +361,9 @@ defmodule Franz do
         %Franz.NewPartitions{name: "logs", total_count: 20}
       ])
   """
-  @spec create_partitions_batch(bootstrap_servers(), [Franz.NewPartitions.t()]) :: [topic_result()]
+  @spec create_partitions_batch(bootstrap_servers(), [Franz.NewPartitions.t()]) :: [
+          topic_result()
+        ]
   def create_partitions_batch(bootstrap_servers, partitions) when is_list(partitions) do
     config = %Admin.Config{bootstrap_servers: bootstrap_servers}
     {:ok, admin_ref} = Native.admin_start(config)

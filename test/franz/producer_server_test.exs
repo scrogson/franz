@@ -82,9 +82,7 @@ defmodule Franz.ProducerServerTest do
       )
 
     {:ok, producer_server} =
-      Producer.Server.start_link(
-        config: config
-      )
+      Producer.Server.start_link(config: config)
 
     # Send messages asynchronously
     for i <- 0..99 do
@@ -135,9 +133,7 @@ defmodule Franz.ProducerServerTest do
     config = Producer.Config.new(bootstrap_servers: brokers)
 
     {:ok, producer_server} =
-      Producer.Server.start_link(
-        config: config
-      )
+      Producer.Server.start_link(config: config)
 
     # Send async messages
     for i <- 0..9 do
@@ -163,9 +159,7 @@ defmodule Franz.ProducerServerTest do
       )
 
     {:ok, producer_server} =
-      Producer.Server.start_link(
-        config: config
-      )
+      Producer.Server.start_link(config: config)
 
     # Initially should be 0
     assert Producer.Server.in_flight_count(producer_server) == 0
@@ -197,9 +191,7 @@ defmodule Franz.ProducerServerTest do
     config = Producer.Config.new(bootstrap_servers: brokers)
 
     {:ok, producer_server} =
-      Producer.Server.start_link(
-        config: config
-      )
+      Producer.Server.start_link(config: config)
 
     # Send async messages
     for i <- 0..19 do
@@ -247,9 +239,7 @@ defmodule Franz.ProducerServerTest do
     config = Producer.Config.new(bootstrap_servers: brokers)
 
     {:ok, producer_server} =
-      Producer.Server.start_link(
-        config: config
-      )
+      Producer.Server.start_link(config: config)
 
     {:ok, producer} = Producer.Server.get_producer(producer_server)
     assert %Producer{} = producer

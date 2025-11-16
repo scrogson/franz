@@ -75,12 +75,7 @@ async fn create_topics(
 
     let assignment_refs: Vec<Vec<&[i32]>> = assignment_storage
         .iter()
-        .map(|assignments| {
-            assignments
-                .iter()
-                .map(|v| v.as_slice())
-                .collect()
-        })
+        .map(|assignments| assignments.iter().map(|v| v.as_slice()).collect())
         .collect();
 
     let topics: Vec<rdkafka::admin::NewTopic> = new_topics
@@ -103,7 +98,7 @@ async fn create_topics(
             );
 
             for (k, v) in &new_topic.config {
-                topic = topic.set(&k, &v);
+                topic = topic.set(k, v);
             }
 
             topic
@@ -265,12 +260,9 @@ async fn create_partitions(
     let assignment_refs: Vec<Option<Vec<&[i32]>>> = assignment_storage
         .iter()
         .map(|opt_assignments| {
-            opt_assignments.as_ref().map(|assignments| {
-                assignments
-                    .iter()
-                    .map(|v| v.as_slice())
-                    .collect()
-            })
+            opt_assignments
+                .as_ref()
+                .map(|assignments| assignments.iter().map(|v| v.as_slice()).collect())
         })
         .collect();
 
@@ -278,10 +270,8 @@ async fn create_partitions(
         .iter()
         .enumerate()
         .map(|(idx, np)| {
-            let mut new_parts = rdkafka::admin::NewPartitions::new(
-                &np.name,
-                np.total_count as usize,
-            );
+            let mut new_parts =
+                rdkafka::admin::NewPartitions::new(&np.name, np.total_count as usize);
 
             if let Some(ref assignment) = assignment_refs[idx] {
                 new_parts = new_parts.assign(assignment.as_slice());

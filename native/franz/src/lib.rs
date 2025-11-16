@@ -1,3 +1,5 @@
+#![deny(warnings)]
+
 use rustler::{Env, Term};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter, Layer};
 

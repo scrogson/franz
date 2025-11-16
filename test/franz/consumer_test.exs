@@ -13,7 +13,7 @@ defmodule Franz.ConsumerTest do
       enable_auto_commit: false,
       session_timeout_ms: 3000,
       heartbeat_interval_ms: 1000,
-      max_poll_interval_ms: 10000
+      max_poll_interval_ms: 10_000
     )
   end
 
@@ -62,7 +62,7 @@ defmodule Franz.ConsumerTest do
 
       for n <- 0..19 do
         {:ok, _receipt} =
-        Producer.send(producer, %Franz.Message{
+          Producer.send(producer, %Franz.Message{
             topic: topic,
             partition: :erlang.phash2(n, num_partitions),
             key: "#{n}",
@@ -453,7 +453,7 @@ defmodule Franz.ConsumerTest do
 
     # Send new message
     {:ok, _receipt} =
-        Producer.send(producer, %Franz.Message{
+      Producer.send(producer, %Franz.Message{
         topic: topic,
         partition: 0,
         payload: "new-msg"
@@ -544,7 +544,7 @@ defmodule Franz.ConsumerTest do
     end
 
     # Receive messages
-    last_msg =
+    messages =
       for _ <- 0..4 do
         receive do
           {^channel, {:message, %{msg: msg}}} -> msg
@@ -552,7 +552,8 @@ defmodule Franz.ConsumerTest do
           5000 -> flunk("Did not receive message")
         end
       end
-      |> List.last()
+
+    last_msg = List.last(messages)
 
     # Get position
     {:ok, positions} = Consumer.position(consumer)
