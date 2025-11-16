@@ -56,8 +56,8 @@ defmodule Franz.TelemetryTest do
     assert metadata.bootstrap_servers == brokers
 
     # Send message
-    :ok =
-      Producer.send(producer, %Message{
+    {:ok, _receipt} =
+        Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
         key: "test-key",
@@ -139,8 +139,8 @@ defmodule Franz.TelemetryTest do
     # Send a message
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
-    :ok =
-      Producer.send(producer, %Message{
+    {:ok, _receipt} =
+        Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
         payload: "telemetry-test"

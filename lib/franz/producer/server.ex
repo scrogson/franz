@@ -58,7 +58,7 @@ defmodule Franz.Producer.Server do
   use GenServer
   require Logger
 
-  alias Franz.{Producer, Error, Message}
+  alias Franz.{DeliveryReceipt, Error, Message, Producer}
 
   @type option ::
           {:name, atom()}
@@ -90,14 +90,18 @@ defmodule Franz.Producer.Server do
   @doc """
   Sends a message synchronously (waits for delivery confirmation).
 
+  Returns a `DeliveryReceipt` with metadata about where the message was written.
+
   This blocks until the message is delivered or an error occurs.
   For high-throughput scenarios, use `send_async/3` instead.
 
   ## Examples
 
-      :ok = Franz.Producer.Server.send(MyProducer, message)
+      {:ok, receipt} = Franz.Producer.Server.send(MyProducer, message)
+      # receipt = %DeliveryReceipt{topic: "events", partition: 0, offset: 42}
   """
-  @spec send(GenServer.server(), Message.t(), timeout()) :: :ok | {:error, Error.t()}
+  @spec send(GenServer.server(), Message.t(), timeout()) ::
+          {:ok, DeliveryReceipt.t()} | {:error, Error.t()}
   def send(server, message, timeout \\ 10_000) do
     GenServer.call(server, {:send, message}, timeout)
   end

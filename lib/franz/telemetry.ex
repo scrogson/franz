@@ -42,11 +42,13 @@ defmodule Franz.Telemetry do
   - `:duration` - Time taken to send the message (native time units)
 
   **Metadata:**
-  - `:topic` - Topic name
-  - `:partition` - Partition number
+  - `:topic` - Topic name (requested)
+  - `:partition` - Partition number (requested)
   - `:has_key` - Boolean indicating if message has a key
   - `:has_payload` - Boolean indicating if message has a payload
   - `:headers_count` - Number of headers
+  - `:delivered_partition` - Actual partition where message was written
+  - `:delivered_offset` - Offset assigned to the message in Kafka
 
   ### `[:franz, :producer, :send, :error]`
 

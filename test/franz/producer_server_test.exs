@@ -34,7 +34,7 @@ defmodule Franz.ProducerServerTest do
 
     # Send messages synchronously
     for i <- 0..4 do
-      :ok =
+      {:ok, _receipt} =
         Producer.Server.send(producer_server, %Message{
           topic: topic,
           partition: 0,

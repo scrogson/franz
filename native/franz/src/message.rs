@@ -14,6 +14,15 @@ pub struct Message {
     pub headers: Vec<(String, String)>,
 }
 
+#[derive(Debug, NifStruct)]
+#[module = "Franz.DeliveryReceipt"]
+pub struct DeliveryReceipt {
+    pub topic: String,
+    pub partition: i32,
+    pub offset: i64,
+    pub timestamp: Option<i64>,
+}
+
 impl<'a> From<&BorrowedMessage<'a>> for Message {
     fn from(msg: &BorrowedMessage) -> Message {
         let headers = msg

@@ -133,7 +133,7 @@ if Code.ensure_loaded?(Broadway) do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..9 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Message{
           topic: topic,
           partition: rem(i, 3),
@@ -175,7 +175,7 @@ if Code.ensure_loaded?(Broadway) do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..14 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Message{
           topic: topic,
           partition: 0,
@@ -218,8 +218,8 @@ if Code.ensure_loaded?(Broadway) do
     # Produce message with headers
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
-    :ok =
-      Producer.send(producer, %Message{
+    {:ok, _receipt} =
+        Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
         key: "test-key",

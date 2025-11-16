@@ -8,6 +8,8 @@ defmodule Franz.Native do
   def admin_stop(_ref), do: err()
   def create_topics(_ref, _new_topics), do: err()
   def delete_topics(_ref, _topics), do: err()
+  def list_topics(_ref, _timeout_ms), do: err()
+  def describe_cluster(_ref, _timeout_ms), do: err()
   def create_partitions(_ref, _new_partitions), do: err()
   def describe_broker(_ref, _broker), do: err()
   def describe_group(_ref, _group), do: err()

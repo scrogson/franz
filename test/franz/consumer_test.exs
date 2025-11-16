@@ -61,8 +61,8 @@ defmodule Franz.ConsumerTest do
       {:ok, producer} = Producer.start(config)
 
       for n <- 0..19 do
-        :ok =
-          Producer.send(producer, %Franz.Message{
+        {:ok, _receipt} =
+        Producer.send(producer, %Franz.Message{
             topic: topic,
             partition: :erlang.phash2(n, num_partitions),
             key: "#{n}",
@@ -300,7 +300,7 @@ defmodule Franz.ConsumerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..4 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,
@@ -326,7 +326,7 @@ defmodule Franz.ConsumerTest do
 
     # Send more messages while paused
     for i <- 5..9 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,
@@ -373,7 +373,7 @@ defmodule Franz.ConsumerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..4 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,
@@ -423,7 +423,7 @@ defmodule Franz.ConsumerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..4 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,
@@ -452,8 +452,8 @@ defmodule Franz.ConsumerTest do
     end
 
     # Send new message
-    :ok =
-      Producer.send(producer, %Franz.Message{
+    {:ok, _receipt} =
+        Producer.send(producer, %Franz.Message{
         topic: topic,
         partition: 0,
         payload: "new-msg"
@@ -483,7 +483,7 @@ defmodule Franz.ConsumerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..9 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,
@@ -535,7 +535,7 @@ defmodule Franz.ConsumerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..4 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,
@@ -586,7 +586,7 @@ defmodule Franz.ConsumerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..19 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,
@@ -651,7 +651,7 @@ defmodule Franz.ConsumerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..4 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,
@@ -683,7 +683,7 @@ defmodule Franz.ConsumerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..19 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,
@@ -725,7 +725,7 @@ defmodule Franz.ConsumerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..4 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Franz.Message{
           topic: topic,
           partition: 0,

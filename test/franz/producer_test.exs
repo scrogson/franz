@@ -38,12 +38,16 @@ defmodule Franz.ProducerTest do
   test "send message without key", %{brokers: brokers, topic: topic} do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
-    assert :ok =
+    assert {:ok, receipt} =
              Producer.send(producer, %Message{
                topic: topic,
                partition: 0,
                payload: "test payload"
              })
+
+    assert receipt.topic == topic
+    assert receipt.partition == 0
+    assert receipt.offset >= 0
 
     :ok = Producer.stop(producer)
   end
@@ -51,13 +55,17 @@ defmodule Franz.ProducerTest do
   test "send message with key", %{brokers: brokers, topic: topic} do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
-    assert :ok =
+    assert {:ok, receipt} =
              Producer.send(producer, %Message{
                topic: topic,
                partition: 0,
                key: "test-key",
                payload: "test payload"
              })
+
+    assert receipt.topic == topic
+    assert receipt.partition == 0
+    assert receipt.offset >= 0
 
     :ok = Producer.stop(producer)
   end
@@ -66,28 +74,34 @@ defmodule Franz.ProducerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     # Send to partition 0
-    assert :ok =
+    assert {:ok, receipt0} =
              Producer.send(producer, %Message{
                topic: topic,
                partition: 0,
                payload: "partition 0"
              })
 
+    assert receipt0.partition == 0
+
     # Send to partition 1
-    assert :ok =
+    assert {:ok, receipt1} =
              Producer.send(producer, %Message{
                topic: topic,
                partition: 1,
                payload: "partition 1"
              })
 
+    assert receipt1.partition == 1
+
     # Send to partition 2
-    assert :ok =
+    assert {:ok, receipt2} =
              Producer.send(producer, %Message{
                topic: topic,
                partition: 2,
                payload: "partition 2"
              })
+
+    assert receipt2.partition == 2
 
     :ok = Producer.stop(producer)
   end
@@ -96,7 +110,7 @@ defmodule Franz.ProducerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..49 do
-      assert :ok =
+      assert {:ok, _receipt} =
                Producer.send(producer, %Message{
                  topic: topic,
                  partition: rem(i, 3),
@@ -120,7 +134,7 @@ defmodule Franz.ProducerTest do
     %{channel: channel} = consumer
 
     # Send a message
-    :ok =
+    {:ok, _receipt} =
       Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
@@ -164,7 +178,7 @@ defmodule Franz.ProducerTest do
       {"request-id", "req-abc"}
     ]
 
-    :ok =
+    {:ok, _receipt} =
       Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
@@ -204,7 +218,7 @@ defmodule Franz.ProducerTest do
     %{channel: channel} = consumer
 
     # Send a message with empty headers list
-    :ok =
+    {:ok, _receipt} =
       Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
@@ -232,7 +246,7 @@ defmodule Franz.ProducerTest do
 
     # Send multiple messages rapidly
     for i <- 0..9 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Message{
           topic: topic,
           partition: 0,

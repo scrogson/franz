@@ -54,7 +54,7 @@ defmodule Franz.ConsumerServerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..4 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Message{
           topic: topic,
           partition: 0,
@@ -104,7 +104,7 @@ defmodule Franz.ConsumerServerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..2 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Message{
           topic: topic,
           partition: 0,
@@ -124,7 +124,7 @@ defmodule Franz.ConsumerServerTest do
 
     # Send more messages while paused
     for i <- 3..5 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Message{
           topic: topic,
           partition: 0,
@@ -187,7 +187,7 @@ defmodule Franz.ConsumerServerTest do
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
     for i <- 0..14 do
-      :ok =
+      {:ok, _receipt} =
         Producer.send(producer, %Message{
           topic: topic,
           partition: 0,
@@ -247,15 +247,15 @@ defmodule Franz.ConsumerServerTest do
 
     {:ok, producer} = Producer.start(Producer.Config.new(bootstrap_servers: brokers))
 
-    :ok =
-      Producer.send(producer, %Message{
+    {:ok, _receipt} =
+        Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
         payload: "good-message"
       })
 
-    :ok =
-      Producer.send(producer, %Message{
+    {:ok, _receipt} =
+        Producer.send(producer, %Message{
         topic: topic,
         partition: 0,
         payload: "error-message"

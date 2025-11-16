@@ -1,5 +1,5 @@
 defmodule Franz.Producer do
-  alias Franz.{Error, Message, Native, Producer}
+  alias Franz.{DeliveryReceipt, Error, Message, Native, Producer}
   alias Producer.Config
 
   defstruct ref: nil
@@ -46,18 +46,34 @@ defmodule Franz.Producer do
   @doc """
   Send a message to Kafka and wait for delivery confirmation.
 
+  Returns a `DeliveryReceipt` with metadata about where the message was written
+  (topic, partition, offset, timestamp).
+
   This is the safest option but has lower throughput due to waiting for acks.
   For high-throughput scenarios, use `send_async/2` instead.
+
+  ## Examples
+
+      {:ok, producer} = Producer.start(config)
+      msg = %Message{topic: "events", payload: "data"}
+
+      {:ok, receipt} = Producer.send(producer, msg)
+      # receipt = %DeliveryReceipt{
+      #   topic: "events",
+      #   partition: 0,
+      #   offset: 42,
+      #   timestamp: 1234567890
+      # }
   """
-  @spec send(Producer.t(), Message.t()) :: :ok | {:error, Error.t()}
+  @spec send(Producer.t(), Message.t()) :: {:ok, DeliveryReceipt.t()} | {:error, Error.t()}
   def send(%Producer{ref: ref}, %Message{} = msg) do
     start_time = System.monotonic_time()
     task_ref = Native.producer_send(ref, msg)
 
     result =
       receive do
-        {^task_ref, {:ok, _}} ->
-          :ok
+        {^task_ref, {:ok, receipt}} ->
+          {:ok, receipt}
 
         {^task_ref, {:error, reason}} ->
           Error.wrap({:error, reason})
@@ -77,8 +93,15 @@ defmodule Franz.Producer do
     }
 
     case result do
-      :ok ->
-        :telemetry.execute([:franz, :producer, :send], %{duration: duration}, metadata)
+      {:ok, receipt} ->
+        :telemetry.execute(
+          [:franz, :producer, :send],
+          %{duration: duration},
+          Map.merge(metadata, %{
+            delivered_partition: receipt.partition,
+            delivered_offset: receipt.offset
+          })
+        )
 
       {:error, error} ->
         :telemetry.execute(

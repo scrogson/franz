@@ -1,6 +1,6 @@
 use crate::atoms::ok;
 use crate::config::ProducerConfig;
-use crate::message::Message;
+use crate::message::{DeliveryReceipt, Message};
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::message::OwnedHeaders;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
@@ -33,8 +33,8 @@ fn start(config: ProducerConfig) -> Result<ResourceArc<ProducerResource>, String
 async fn producer_send(
     producer_resource: ResourceArc<ProducerResource>,
     msg: Message,
-) -> Result<(), String> {
-    let topic = &msg.topic;
+) -> Result<DeliveryReceipt, String> {
+    let topic = msg.topic.clone();
     let partition = Some(msg.partition);
     let key = msg.key.map(|k| k.0);
     let payload = msg.payload.map(|p| p.0);
@@ -54,7 +54,7 @@ async fn producer_send(
     };
 
     let record = FutureRecord {
-        topic,
+        topic: &topic,
         partition,
         key: key.as_ref(),
         payload: payload.as_ref(),
@@ -80,7 +80,15 @@ async fn producer_send(
                 delivery.partition,
                 delivery.offset
             );
-            Ok(())
+
+            let receipt = DeliveryReceipt {
+                topic,
+                partition: delivery.partition,
+                offset: delivery.offset,
+                timestamp: delivery.timestamp.to_millis(),
+            };
+
+            Ok(receipt)
         }
         Err((err, _)) => {
             error!("Failed to send message: {:?}", err);
